@@ -58,9 +58,12 @@ python -m http.server 5173
 
 ## Публикация на GitHub Pages
 
-1. Создайте репозиторий и отправьте в него файлы проекта.
-2. В настройках репозитория включите **Pages → Build and deployment → GitHub Actions**.
-3. Workflow `.github/workflows/pages.yml` опубликует сайт при push в `main`.
+Сайт публикуется прямо из ветки `main`, без сборки:
+
+1. Откройте **Settings → Pages**.
+2. В разделе **Build and deployment** выберите **Deploy from a branch**.
+3. Укажите ветку `main` и папку `/ (root)`, сохраните.
+4. Сайт будет доступен по адресу `https://fzonov-png.github.io/naladchik/`.
 
 Файл `.nojekyll` отключает обработку Jekyll и сохраняет служебные файлы.
 
@@ -80,7 +83,6 @@ assets/js/github.js         синхронизация с GitHub Gist
 assets/js/charts.js         графики без зависимостей
 assets/icons/               иконки приложения
 tools/make-icons.ps1        генерация PNG-иконок
-.github/workflows/pages.yml публикация на GitHub Pages
 ```
 
 ## Приватность и безопасность
