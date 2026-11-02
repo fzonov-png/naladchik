@@ -1,0 +1,19 @@
+# Временные и тестовые файлы
+test-import.json
+*.log
+*.tmp
+
+# Редакторы и ОС
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Зависимости и окружение
+node_modules/
+.env
+.env.*
+
+# Личные резервные копии
+naladchik-backup-*.json
