@@ -1354,6 +1354,277 @@ img, svg { display: block; }
   * { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
 }
 
+/* ---------- расходы командировки ---------- */
+
+.money-return { color: var(--amber); }
+.money-due { color: var(--green); }
+
+.data-table[data-table="trips"] .actions-col { width: 132px; }
+
+.modal-xl { max-width: 880px; }
+
+.expense-advance-form {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 14px;
+  margin-bottom: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+.expense-advance-form .field { flex: 1 1 220px; margin: 0; }
+.expense-advance-form .btn { flex: none; }
+
+.expense-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.expense-stat {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-2);
+  min-width: 0;
+}
+.expense-stat span {
+  display: block;
+  margin-bottom: 3px;
+  font-size: 9.5px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.expense-stat b { font-size: 14px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.modal-table-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.modal-table-head h3 { margin: 0; font-size: 13px; font-weight: 650; }
+.expense-table { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.expense-table th, .expense-table td { padding: 9px 11px; }
+.expense-table .actions-col { width: 72px; }
+.expense-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 22px 14px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: left;
+}
+.expense-empty svg { width: 20px; height: 20px; flex: none; opacity: 0.7; }
+
+.advance-empty {
+  margin: 0;
+  padding: 16px 18px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 12px;
+  color: var(--muted);
+  background: var(--surface-2);
+  font-size: 12px;
+}
+
+/* ---------- авансовый отчёт (A4) ---------- */
+
+.advance-view { max-width: 900px; margin: 0 auto; }
+
+.advance-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.advance-toolbar-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+.advance-sheet {
+  width: 100%;
+  max-width: 210mm;
+  margin: 0 auto;
+  padding: 11mm 11mm 12mm;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #14212d;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.42);
+  font-family: var(--font);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+[data-theme="light"] .advance-sheet { box-shadow: 0 18px 45px rgba(15, 35, 60, 0.16); }
+
+.advance-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid #1d3a57;
+}
+.advance-brand { min-width: 0; }
+.advance-brand b { display: block; font-size: 14px; font-weight: 700; color: #10202f; }
+.advance-brand span { display: block; margin-top: 3px; font-size: 11px; color: #5b7085; }
+.advance-heading { text-align: right; flex: none; }
+.advance-heading h1 {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #10202f;
+}
+.advance-heading p { margin: 4px 0 0; font-size: 11.5px; color: #5b7085; }
+
+.advance-meta {
+  width: 100%;
+  margin: 14px 0 18px;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.advance-meta th,
+.advance-meta td {
+  padding: 7px 9px;
+  border: 1px solid #d5dfe9;
+  font-size: 11.5px;
+  text-align: left;
+  vertical-align: top;
+  color: #14212d;
+  overflow-wrap: anywhere;
+}
+.advance-meta th {
+  width: 17%;
+  background: #f3f7fb;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #5b7085;
+}
+.advance-meta td { width: 33%; }
+
+.advance-section-title {
+  margin: 0 0 7px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: #36506a;
+}
+
+.advance-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.advance-table th,
+.advance-table td {
+  padding: 7px 9px;
+  border: 1px solid #d5dfe9;
+  font-size: 11.5px;
+  text-align: left;
+  vertical-align: top;
+  color: #14212d;
+  overflow-wrap: anywhere;
+}
+.advance-table th {
+  background: #eef3f9;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #5b7085;
+}
+.advance-table th.num, .advance-table td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.advance-table th:nth-child(1) { width: 7%; }
+.advance-table th:nth-child(2) { width: 17%; }
+.advance-table th:nth-child(4) { width: 25%; }
+.advance-table th:nth-child(5) { width: 18%; }
+.advance-table .advance-total td {
+  background: #f3f7fb;
+  font-weight: 700;
+  font-size: 12px;
+  border-top: 2px solid #9fb3c8;
+}
+.advance-table .advance-empty-cell { text-align: center; color: #6b8095; padding: 16px 9px; }
+.advance-note { margin-top: 2px; font-size: 10px; line-height: 1.35; color: #5b7085; }
+
+.advance-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 16px 0 12px;
+}
+.advance-summary-item {
+  padding: 10px 12px;
+  border: 1px solid #d5dfe9;
+  border-radius: 3px;
+  background: #f8fafc;
+}
+.advance-summary-item span {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #5b7085;
+}
+.advance-summary-item b { font-size: 15px; font-variant-numeric: tabular-nums; color: #10202f; }
+.advance-summary-total { background: #eef4fd; border-color: #b8cfeb; }
+.advance-summary-total .money-return { color: #b45309; }
+.advance-summary-total .money-due { color: #047857; }
+
+.advance-note-line { margin: 0 0 6px; font-size: 10px; color: #5b7085; }
+
+.advance-signatures {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 30px;
+  margin-top: 24px;
+  padding-top: 6px;
+}
+.advance-sign span {
+  display: block;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #5b7085;
+}
+.advance-sign-line {
+  display: flex;
+  align-items: flex-end;
+  min-height: 34px;
+  padding: 12px 2px 3px;
+  border-bottom: 1px solid #8fa3b8;
+}
+.advance-sign-line b { font-size: 11px; font-weight: 600; color: #14212d; }
+.advance-sign-date { align-self: end; }
+
+@media (max-width: 760px) {
+  .advance-sheet { padding: 18px 16px 22px; }
+  .advance-head { flex-direction: column; gap: 10px; }
+  .advance-heading { text-align: left; }
+  .advance-meta, .advance-meta tbody, .advance-meta tr { display: block; }
+  .advance-meta th, .advance-meta td { display: block; width: auto; }
+  .advance-meta th { border-bottom: 0; }
+  .advance-summary { grid-template-columns: 1fr; }
+  .advance-signatures { grid-template-columns: 1fr; }
+}
+
 /* ---------- печать ---------- */
 
 @media print {
@@ -1379,6 +1650,10 @@ img, svg { display: block; }
   .sidebar, .topbar, .nav-backdrop, .toast-stack, .report-actions, .modal-backdrop, .noscript, .sidebar-toggle { display: none !important; }
   .main { margin-left: 0 !important; }
   .view { max-width: none; padding: 0; }
+  .advance-toolbar { display: none !important; }
+  .advance-view { max-width: none; }
+  .advance-sheet { max-width: none; padding: 0; border-radius: 0; box-shadow: none; font-size: 10pt; }
+  .advance-summary, .advance-signatures, .advance-table { break-inside: avoid; }
   .card { box-shadow: none !important; background: #fff !important; border: 1px solid #d8dfe8 !important; break-inside: avoid; }
   .kpi-grid { grid-template-columns: repeat(5, 1fr); gap: 8px; }
   .kpi-value { font-size: 15pt; }

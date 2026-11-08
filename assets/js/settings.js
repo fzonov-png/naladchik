@@ -33,6 +33,8 @@
       '<header class="card-head"><div><h2>Профиль и расчёты</h2><p>Основные параметры кабинета</p></div></header>' +
       '<div class="form-grid">' +
       '<label class="field span-2"><span>Имя инженера</span><input class="input" type="text" name="engineerName" maxlength="120" placeholder="Как подписывать данные" value="' + esc(settings.engineerName) + '"></label>' +
+      '<label class="field span-2"><span>Организация</span><input class="input" type="text" name="organization" maxlength="200" placeholder="Например, ООО «ПромАвтоматика»" value="' + esc(settings.organization || '') + '"></label>' +
+      '<label class="field span-2"><span>Должность</span><input class="input" type="text" name="position" maxlength="160" placeholder="Например, инженер по наладке КИПиА" value="' + esc(settings.position || '') + '"></label>' +
       '<label class="field"><span>Валюта</span><select class="input" name="currency">' +
       Object.keys(Store.CURRENCIES).map(function (code) {
         return '<option value="' + code + '"' + (settings.currency === code ? ' selected' : '') + '>' + esc(Store.CURRENCIES[code].label) + ' (' + esc(Store.CURRENCIES[code].symbol) + ')</option>';
@@ -42,7 +44,7 @@
       '<input class="input" type="number" name="perDiemRate" min="0" step="1" inputmode="decimal" value="' + esc(settings.perDiemRate) + '">' +
       '<span class="input-suffix">' + esc(Store.currencySymbol()) + ' / сутки</span></div></label>' +
       '</div>' +
-      '<p class="hint">' + icon('info') + ' Ставка применяется к новым командировкам. В существующих поездках сохраняется своя ставка.</p>' +
+      '<p class="hint">' + icon('info') + ' Ставка применяется к новым командировкам. Организация и должность печатаются в шапке авансового отчёта.</p>' +
       '<footer class="settings-footer"><button type="submit" class="btn btn-primary">Сохранить настройки</button>' +
       '<span class="muted">Тема оформления переключается кнопкой в шапке</span></footer>' +
       '</form>' +
@@ -109,8 +111,10 @@
       '<button type="button" class="btn btn-ghost btn-sm" data-action="export-json">Скачать JSON</button></div>' +
       '<div class="data-row"><div class="data-main">' + icon('download') + '<div><b>Доходы в CSV</b><span>Все записи для Excel или бухгалтерии</span></div></div>' +
       '<button type="button" class="btn btn-ghost btn-sm" data-action="export-incomes-csv" data-scope="all">Скачать CSV</button></div>' +
-      '<div class="data-row"><div class="data-main">' + icon('download') + '<div><b>Командировки в CSV</b><span>Направления, сутки и суточные</span></div></div>' +
+      '<div class="data-row"><div class="data-main">' + icon('download') + '<div><b>Командировки в CSV</b><span>Направления, сутки, суточные, авансы и баланс</span></div></div>' +
       '<button type="button" class="btn btn-ghost btn-sm" data-action="export-trips-csv" data-scope="all">Скачать CSV</button></div>' +
+      '<div class="data-row"><div class="data-main">' + icon('download') + '<div><b>Расходы командировок в CSV</b><span>Даты, категории, документы и суммы</span></div></div>' +
+      '<button type="button" class="btn btn-ghost btn-sm" data-action="export-expenses-csv" data-scope="all">Скачать CSV</button></div>' +
       '<div class="data-row"><div class="data-main">' + icon('upload') + '<div><b>Импорт из JSON</b><span>Заменит текущие данные резервной копией</span></div></div>' +
       '<button type="button" class="btn btn-ghost btn-sm" data-action="import-json">Выбрать файл</button></div>' +
       (backup
@@ -128,7 +132,7 @@
       '<section class="card settings-card settings-wide">' +
       '<header class="card-head"><div><h2>О приложении</h2><p>Локальное приложение без сервера</p></div></header>' +
       '<div class="about-grid">' +
-      '<div><span>Версия</span><b>1.1.0</b></div>' +
+      '<div><span>Версия</span><b>1.2.0</b></div>' +
       '<div><span>Хранение</span><b>localStorage + GitHub Gist</b></div>' +
       '<div><span>Формат данных</span><b>JSON</b></div>' +
       '<div><span>Валюта</span><b>' + esc(Store.CURRENCIES[settings.currency].label) + '</b></div>' +
@@ -183,6 +187,8 @@
     }
     Store.saveSettings({
       engineerName: String(data.get('engineerName') || '').trim(),
+      organization: String(data.get('organization') || '').trim(),
+      position: String(data.get('position') || '').trim(),
       currency: String(data.get('currency') || 'RUB'),
       perDiemRate: rate
     });
@@ -319,7 +325,7 @@
       WC.toast('Нет командировок для выгрузки', { type: 'info' });
       return;
     }
-    const rows = [['Направление', 'Объект', 'Начало', 'Окончание', 'Суток', 'Ставка', 'Суточные', 'Транспорт', 'Цель', 'Статус']];
+    const rows = [['Направление', 'Объект', 'Начало', 'Окончание', 'Суток', 'Ставка', 'Суточные', 'Аванс', 'Расходы', 'К отчёту', 'Баланс (аванс − отчёт)', 'Транспорт', 'Цель', 'Статус']];
     list.forEach(function (trip) {
       rows.push([
         trip.destination,
@@ -329,6 +335,10 @@
         Store.tripDays(trip),
         String(trip.perDiemRate).replace('.', ','),
         String(Store.tripPerDiem(trip)).replace('.', ','),
+        String(Store.tripAdvance(trip)).replace('.', ','),
+        String(Store.tripExpensesTotal(trip)).replace('.', ','),
+        String(Store.tripReportTotal(trip)).replace('.', ','),
+        String(Store.tripBalance(trip)).replace('.', ','),
         trip.transport || '',
         trip.purpose || '',
         Store.TRIP_STATUSES[Store.tripStatus(trip)]
@@ -337,6 +347,38 @@
     const suffix = scope === 'period' ? WC.fileSuffix() : '-all';
     WC.downloadText('naladchik-komandirovki' + suffix + '.csv', WC.toCsv(rows), 'text/csv;charset=utf-8');
     WC.toast('CSV с командировками сохранён');
+  }
+
+  function exportExpensesCsv(scope) {
+    const range = scope === 'period' ? WC.getRange() : { from: null, to: null };
+    const list = Store.tripsInRange(range.from, range.to).slice().sort(function (a, b) { return a.startDate.localeCompare(b.startDate); });
+    const rows = [['Командировка', 'Направление', 'Дата', 'Вид расхода', 'Документ', 'Способ оплаты', 'Сумма', 'Комментарий']];
+    let count = 0;
+    list.forEach(function (trip) {
+      const expenses = scope === 'period'
+        ? Store.tripExpensesInRange(trip, range.from, range.to)
+        : Store.tripExpenses(trip);
+      expenses.slice().sort(function (a, b) { return a.date.localeCompare(b.date); }).forEach(function (expense) {
+        count += 1;
+        rows.push([
+          trip.destination,
+          WC.objectLabel(trip.objectId) || '',
+          fdate(expense.date),
+          Store.EXPENSE_CATEGORIES[expense.category] || 'Прочие расходы',
+          expense.document || '',
+          expense.method === 'cash' ? 'Наличные' : 'Безналичные',
+          String(expense.amount).replace('.', ','),
+          expense.note || ''
+        ]);
+      });
+    });
+    if (!count) {
+      WC.toast('Нет расходов командировок для выгрузки', { type: 'info' });
+      return;
+    }
+    const suffix = scope === 'period' ? WC.fileSuffix() : '-all';
+    WC.downloadText('naladchik-rashody' + suffix + '.csv', WC.toCsv(rows), 'text/csv;charset=utf-8');
+    WC.toast('CSV с расходами сохранён');
   }
 
   function handleImportFile(file) {
@@ -405,6 +447,8 @@
     const createdAt = Store.nowISO();
     const settings = Object.assign({}, Store.state.settings, {
       engineerName: Store.state.settings.engineerName || 'Алексей Смирнов',
+      organization: Store.state.settings.organization || 'ООО «ПромАвтоматика»',
+      position: Store.state.settings.position || 'Инженер по наладке КИПиА',
       perDiemRate: 700
     });
 
@@ -422,10 +466,48 @@
     ];
 
     const trips = [
-      { id: 'demo-trip-1', destination: 'Норильск', objectId: 'demo-object-1', startDate: demoDate(-2, 4), endDate: demoDate(-2, 11), perDiemRate: 700, transport: 'Авиа', purpose: 'ПНР шкафов КИПиА', note: '', createdAt: createdAt, updatedAt: createdAt },
-      { id: 'demo-trip-2', destination: 'Тольятти', objectId: 'demo-object-2', startDate: demoDate(-1, 8), endDate: demoDate(-1, 12), perDiemRate: 700, transport: 'Поезд', purpose: 'Наладка окрасочной линии', note: '', createdAt: createdAt, updatedAt: createdAt },
-      { id: 'demo-trip-3', destination: 'Мурманск', objectId: 'demo-object-3', startDate: demoDate(0, 3), endDate: demoDate(0, 10), perDiemRate: 700, transport: 'Авиа', purpose: 'Пуск конвейерной линии', note: '', createdAt: createdAt, updatedAt: createdAt },
-      { id: 'demo-trip-4', destination: 'Пермь', objectId: 'demo-object-4', startDate: demoDate(0, 20), endDate: demoDate(0, 24), perDiemRate: 700, transport: 'Авто', purpose: 'Проверка контуров регулирования', note: '', createdAt: createdAt, updatedAt: createdAt }
+      {
+        id: 'demo-trip-1', destination: 'Норильск', objectId: 'demo-object-1', startDate: demoDate(-2, 4), endDate: demoDate(-2, 11),
+        perDiemRate: 700, advanceAmount: 60000, transport: 'Авиа', purpose: 'ПНР шкафов КИПиА', note: '',
+        expenses: [
+          { id: 'demo-trip-1-exp-1', date: demoDate(-2, 4), category: 'travel', amount: 18500, method: 'bank', document: 'Авиабилет № 4215', note: 'Москва — Норильск' },
+          { id: 'demo-trip-1-exp-2', date: demoDate(-2, 4), category: 'lodging', amount: 32000, method: 'bank', document: 'Счёт гостиницы № 88', note: '8 суток' },
+          { id: 'demo-trip-1-exp-3', date: demoDate(-2, 5), category: 'localTransport', amount: 2400, method: 'cash', document: 'Чек такси', note: 'Аэропорт — площадка' },
+          { id: 'demo-trip-1-exp-4', date: demoDate(-2, 6), category: 'communication', amount: 900, method: 'cash', document: 'Чек оператора связи', note: '' }
+        ],
+        createdAt: createdAt, updatedAt: createdAt
+      },
+      {
+        id: 'demo-trip-2', destination: 'Тольятти', objectId: 'demo-object-2', startDate: demoDate(-1, 8), endDate: demoDate(-1, 12),
+        perDiemRate: 700, advanceAmount: 30000, transport: 'Поезд', purpose: 'Наладка окрасочной линии', note: '',
+        expenses: [
+          { id: 'demo-trip-2-exp-1', date: demoDate(-1, 8), category: 'travel', amount: 4200, method: 'bank', document: 'Билет РЖД № 1140', note: 'Москва — Тольятти' },
+          { id: 'demo-trip-2-exp-2', date: demoDate(-1, 8), category: 'lodging', amount: 18000, method: 'bank', document: 'Счёт гостиницы № 51', note: '5 суток' },
+          { id: 'demo-trip-2-exp-3', date: demoDate(-1, 9), category: 'localTransport', amount: 1500, method: 'cash', document: 'Чек такси', note: '' }
+        ],
+        createdAt: createdAt, updatedAt: createdAt
+      },
+      {
+        id: 'demo-trip-3', destination: 'Мурманск', objectId: 'demo-object-3', startDate: demoDate(0, 3), endDate: demoDate(0, 10),
+        perDiemRate: 700, advanceAmount: 55000, transport: 'Авиа', purpose: 'Пуск конвейерной линии', note: '',
+        expenses: [
+          { id: 'demo-trip-3-exp-1', date: demoDate(0, 3), category: 'travel', amount: 21000, method: 'bank', document: 'Авиабилет № 7781', note: 'Москва — Мурманск' },
+          { id: 'demo-trip-3-exp-2', date: demoDate(0, 3), category: 'lodging', amount: 30000, method: 'bank', document: 'Счёт гостиницы № 143', note: '8 суток' },
+          { id: 'demo-trip-3-exp-3', date: demoDate(0, 4), category: 'localTransport', amount: 2100, method: 'cash', document: 'Чек такси', note: '' },
+          { id: 'demo-trip-3-exp-4', date: demoDate(0, 6), category: 'representation', amount: 3000, method: 'cash', document: 'Чек кафе', note: 'Переговоры с заказчиком' }
+        ],
+        createdAt: createdAt, updatedAt: createdAt
+      },
+      {
+        id: 'demo-trip-4', destination: 'Пермь', objectId: 'demo-object-4', startDate: demoDate(0, 20), endDate: demoDate(0, 24),
+        perDiemRate: 700, advanceAmount: 25000, transport: 'Авто', purpose: 'Проверка контуров регулирования', note: '',
+        expenses: [
+          { id: 'demo-trip-4-exp-1', date: demoDate(0, 20), category: 'travel', amount: 6000, method: 'bank', document: 'Чек АЗС № 331', note: 'Поездка на автомобиле' },
+          { id: 'demo-trip-4-exp-2', date: demoDate(0, 20), category: 'lodging', amount: 15000, method: 'bank', document: 'Счёт гостиницы № 64', note: '5 суток' },
+          { id: 'demo-trip-4-exp-3', date: demoDate(0, 21), category: 'communication', amount: 600, method: 'cash', document: 'Чек оператора связи', note: '' }
+        ],
+        createdAt: createdAt, updatedAt: createdAt
+      }
     ];
 
     const incomes = [];
@@ -543,6 +625,7 @@
   WC.registerAction('export-json', exportJson);
   WC.registerAction('export-incomes-csv', function (element) { exportIncomesCsv(element.getAttribute('data-scope') || 'all'); });
   WC.registerAction('export-trips-csv', function (element) { exportTripsCsv(element.getAttribute('data-scope') || 'all'); });
+  WC.registerAction('export-expenses-csv', function (element) { exportExpensesCsv(element.getAttribute('data-scope') || 'all'); });
   WC.registerAction('import-json', function () {
     const input = document.getElementById('importFile');
     if (input) input.click();

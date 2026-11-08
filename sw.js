@@ -5,19 +5,19 @@
    ============================================================ */
 'use strict';
 
-const CACHE_NAME = 'naladchik-shell-v1.1.0';
+const CACHE_NAME = 'naladchik-shell-v1.2.0';
 const SHELL = [
   './',
   './index.html',
   './manifest.webmanifest',
-  './assets/css/styles.css?v=1.1.0',
-  './assets/js/store.js?v=1.1.0',
-  './assets/js/charts.js?v=1.1.0',
-  './assets/js/github.js?v=1.1.0',
-  './assets/js/core.js?v=1.1.0',
-  './assets/js/views.js?v=1.1.0',
-  './assets/js/modals.js?v=1.1.0',
-  './assets/js/settings.js?v=1.1.0',
+  './assets/css/styles.css?v=1.2.0',
+  './assets/js/store.js?v=1.2.0',
+  './assets/js/charts.js?v=1.2.0',
+  './assets/js/github.js?v=1.2.0',
+  './assets/js/core.js?v=1.2.0',
+  './assets/js/views.js?v=1.2.0',
+  './assets/js/modals.js?v=1.2.0',
+  './assets/js/settings.js?v=1.2.0',
   './assets/icons/favicon.svg',
   './assets/icons/icon-192.png',
   './assets/icons/icon-512.png',

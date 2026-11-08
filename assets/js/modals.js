@@ -224,6 +224,10 @@
       '<label class="field"><span>Ставка суточных</span><div class="input-with-suffix">' +
       '<input class="input" type="number" name="perDiemRate" min="0" step="1" inputmode="decimal" value="' + esc(record ? record.perDiemRate : Store.state.settings.perDiemRate) + '">' +
       '<span class="input-suffix">' + esc(Store.currencySymbol()) + ' / сутки</span></div></label>' +
+      '<label class="field span-2"><span>Аванс на командировку</span><div class="input-with-suffix">' +
+      '<input class="input" type="number" name="advanceAmount" min="0" step="0.01" inputmode="decimal" placeholder="0" value="' + esc(record ? record.advanceAmount || 0 : 0) + '">' +
+      '<span class="input-suffix">' + esc(Store.currencySymbol()) + '</span></div>' +
+      '<small class="hint">Сумма, полученная под отчёт. Используется в авансовом отчёте и расчёте баланса.</small></label>' +
       '<label class="field span-2"><span>Транспорт</span><input class="input" type="text" name="transport" maxlength="200" placeholder="Авиа, поезд, авто" value="' + esc(record ? record.transport : '') + '"></label>' +
       '<label class="field span-2"><span>Цель командировки</span><textarea class="input" name="purpose" rows="2" maxlength="2000" placeholder="Например, пусконаладка шкафов КИПиА">' + esc(record ? record.purpose : '') + '</textarea></label>' +
       '</div>' +
@@ -257,6 +261,7 @@
     const startDate = String(data.get('startDate') || '');
     const endDate = String(data.get('endDate') || '') || startDate;
     const rate = WC.parseAmount(data.get('perDiemRate'));
+    const advanceAmount = WC.parseAmount(data.get('advanceAmount'));
 
     if (!destination) {
       setError(form, 'destination', 'Укажите направление');
@@ -278,6 +283,10 @@
       setError(form, 'perDiemRate', 'Ставка не может быть отрицательной');
       return;
     }
+    if (!Number.isFinite(advanceAmount) || advanceAmount < 0) {
+      setError(form, 'advanceAmount', 'Аванс не может быть отрицательным');
+      return;
+    }
 
     const id = form.getAttribute('data-id');
     const existing = id ? Store.state.trips.find(function (item) { return item.id === id; }) : null;
@@ -289,6 +298,7 @@
       startDate: startDate,
       endDate: endDate,
       perDiemRate: rate,
+      advanceAmount: advanceAmount || 0,
       transport: String(data.get('transport') || ''),
       purpose: String(data.get('purpose') || '')
     });
@@ -405,11 +415,201 @@
     });
   }
 
+  /* ---------- расходы командировки ---------- */
+
+  function expenseRowsHtml(trip) {
+    const expenses = Store.tripExpenses(trip).slice().sort(function (a, b) {
+      return (a.date || '').localeCompare(b.date || '');
+    });
+    if (!expenses.length) {
+      return '<tr><td colspan="6"><div class="expense-empty">' + icon('wallet') +
+        '<span>Расходы пока не внесены. Добавьте проезд, проживание и другие затраты — суточные рассчитаются автоматически.</span></div></td></tr>';
+    }
+    return expenses.map(function (expense) {
+      return '<tr>' +
+        '<td class="nowrap">' + Store.formatDate(expense.date) + '</td>' +
+        '<td><div class="cell-main">' + esc(Store.EXPENSE_CATEGORIES[expense.category] || 'Прочие расходы') + '</div>' +
+        (expense.note ? '<div class="cell-sub cell-note" title="' + esc(expense.note) + '">' + esc(expense.note) + '</div>' : '') + '</td>' +
+        '<td>' + (expense.document ? esc(expense.document) : '<span class="muted">—</span>') + '</td>' +
+        '<td>' + WC.methodBadge(expense.method) + '</td>' +
+        '<td class="num"><b>' + money(expense.amount) + '</b></td>' +
+        '<td class="actions-col"><div class="row-actions">' +
+        '<button type="button" class="icon-btn icon-btn-sm" data-action="edit-trip-expense" data-trip="' + esc(trip.id) + '" data-id="' + esc(expense.id) + '" title="Изменить">' + icon('edit') + '</button>' +
+        '<button type="button" class="icon-btn icon-btn-sm danger" data-action="delete-trip-expense" data-trip="' + esc(trip.id) + '" data-id="' + esc(expense.id) + '" title="Удалить">' + icon('trash') + '</button>' +
+        '</div></td>' +
+        '</tr>';
+    }).join('');
+  }
+
+  function openTripExpensesModal(tripId) {
+    const trip = Store.tripById(tripId);
+    if (!trip) {
+      WC.toast('Командировка не найдена', { type: 'error' });
+      return;
+    }
+    const days = Store.tripDays(trip);
+    const perDiem = Store.tripPerDiem(trip);
+    const expenses = Store.tripExpensesTotal(trip);
+    const reportTotal = Store.tripReportTotal(trip);
+    const advance = Store.tripAdvance(trip);
+    const balance = advance - reportTotal;
+    const balanceLabel = balance > 0 ? 'к возврату' : balance < 0 ? 'к возмещению' : 'закрыт';
+    const balanceTone = balance > 0 ? 'money-return' : balance < 0 ? 'money-due' : 'muted';
+
+    WC.openModal(
+      '<header class="modal-head"><div><h2>Расходы командировки</h2>' +
+      '<p>' + esc(trip.destination) + ' · ' + Store.formatDate(trip.startDate) + ' — ' + Store.formatDate(trip.endDate) + ' · ' + days + ' ' + WC.plural(days, ['сутки', 'суток', 'суток']) + '</p></div>' +
+      '<button type="button" class="icon-btn" data-action="close-modal" aria-label="Закрыть">' + icon('close') + '</button></header>' +
+      '<div class="modal-body">' +
+      '<form id="tripAdvanceForm" class="expense-advance-form" data-id="' + esc(trip.id) + '" novalidate>' +
+      '<label class="field"><span>Аванс на командировку</span><div class="input-with-suffix">' +
+      '<input class="input" type="number" name="advanceAmount" min="0" step="0.01" inputmode="decimal" value="' + esc(advance) + '">' +
+      '<span class="input-suffix">' + esc(Store.currencySymbol()) + '</span></div></label>' +
+      '<button type="submit" class="btn btn-ghost">' + icon('check') + 'Сохранить аванс</button>' +
+      '</form>' +
+      '<div class="expense-summary">' +
+      '<div class="expense-stat"><span>Аванс</span><b>' + money(advance) + '</b></div>' +
+      '<div class="expense-stat"><span>Расходы</span><b>' + money(expenses) + '</b></div>' +
+      '<div class="expense-stat"><span>Суточные</span><b>' + money(perDiem) + '</b></div>' +
+      '<div class="expense-stat"><span>Итого к отчёту</span><b>' + money(reportTotal) + '</b></div>' +
+      '<div class="expense-stat"><span>Баланс · ' + balanceLabel + '</span><b class="' + balanceTone + '">' + money(Math.abs(balance)) + '</b></div>' +
+      '</div>' +
+      '<div class="modal-table-head"><h3>Расходы</h3>' +
+      '<button type="button" class="btn btn-primary btn-sm" data-action="add-trip-expense" data-trip="' + esc(trip.id) + '">' + icon('plus') + 'Добавить расход</button></div>' +
+      '<div class="table-wrap"><table class="data-table expense-table">' +
+      '<thead><tr><th>Дата</th><th>Вид расхода</th><th>Документ</th><th>Способ</th><th class="num">Сумма</th><th class="actions-col"><span class="sr-only">Действия</span></th></tr></thead>' +
+      '<tbody>' + expenseRowsHtml(trip) + '</tbody>' +
+      '</table></div>' +
+      '<p class="hint">' + icon('info') + ' Суточные добавляются в отчёт автоматически: ' + days + ' ' + WC.plural(days, ['сутки', 'суток', 'суток']) + ' × ' + money(trip.perDiemRate) + ' = ' + money(perDiem) + '. В доходы они не входят.</p>' +
+      '</div>' +
+      '<footer class="modal-actions modal-actions-split">' +
+      '<div class="modal-actions-left">' +
+      '<button type="button" class="btn btn-ghost btn-sm" data-action="open-advance-report" data-id="' + esc(trip.id) + '">' + icon('printer') + 'Авансовый отчёт</button>' +
+      '</div>' +
+      '<div class="modal-actions-right">' +
+      '<button type="button" class="btn btn-primary" data-action="close-modal">Готово</button>' +
+      '</div></footer>',
+      { size: 'xl' }
+    );
+  }
+
+  function openTripExpenseModal(tripId, expenseId) {
+    const trip = Store.tripById(tripId);
+    if (!trip) return;
+    const record = expenseId
+      ? Store.tripExpenses(trip).find(function (item) { return item.id === expenseId; }) || null
+      : null;
+    const defaultDate = record ? record.date : (trip.startDate || today);
+    const defaultMethod = record ? record.method : 'cash';
+    const category = record ? record.category : 'travel';
+
+    WC.openModal(
+      '<form id="tripExpenseForm" data-id="' + esc(record ? record.id : '') + '" data-trip="' + esc(trip.id) + '" novalidate>' +
+      '<header class="modal-head"><div><h2>' + (record ? 'Редактировать расход' : 'Новый расход') + '</h2>' +
+      '<p>' + esc(trip.destination) + ' · ' + Store.formatDate(trip.startDate) + ' — ' + Store.formatDate(trip.endDate) + '</p></div>' +
+      '<button type="button" class="icon-btn" data-action="close-modal" aria-label="Закрыть">' + icon('close') + '</button></header>' +
+      '<div class="modal-body"><div class="form-grid">' +
+      '<label class="field"><span>Дата расхода</span><input class="input" type="date" name="date" value="' + esc(defaultDate) + '"></label>' +
+      '<label class="field"><span>Сумма <em>*</em></span><div class="input-with-suffix">' +
+      '<input class="input" type="number" name="amount" min="0.01" step="0.01" inputmode="decimal" placeholder="0" value="' + esc(record ? record.amount : '') + '">' +
+      '<span class="input-suffix">' + esc(Store.currencySymbol()) + '</span></div></label>' +
+      '<label class="field span-2"><span>Вид расхода</span><select class="input" name="category">' +
+      Store.EXPENSE_CATEGORY_ORDER.map(function (key) {
+        return '<option value="' + key + '"' + (category === key ? ' selected' : '') + '>' + esc(Store.EXPENSE_CATEGORIES[key]) + '</option>';
+      }).join('') +
+      '</select></label>' +
+      '<div class="field span-2"><span>Способ оплаты</span><div class="segmented">' +
+      '<label class="seg"><input type="radio" name="method" value="cash"' + (defaultMethod === 'cash' ? ' checked' : '') + '><span>' + icon('cash') + 'Наличные</span></label>' +
+      '<label class="seg"><input type="radio" name="method" value="bank"' + (defaultMethod === 'bank' ? ' checked' : '') + '><span>' + icon('card') + 'Безналичные</span></label>' +
+      '</div></div>' +
+      '<label class="field span-2"><span>Документ</span><input class="input" type="text" name="document" maxlength="160" placeholder="Чек, билет, счёт, акт" value="' + esc(record ? record.document : '') + '"></label>' +
+      '<label class="field span-2"><span>Комментарий</span><textarea class="input" name="note" rows="2" maxlength="1000" placeholder="Например, такси до площадки">' + esc(record ? record.note : '') + '</textarea></label>' +
+      '</div></div>' +
+      '<footer class="modal-actions modal-actions-split">' +
+      '<div class="modal-actions-left">' +
+      (record ? '<button type="button" class="btn btn-danger-ghost btn-sm" data-action="delete-trip-expense" data-trip="' + esc(trip.id) + '" data-id="' + esc(record.id) + '">' + icon('trash') + 'Удалить</button>' : '') +
+      '</div>' +
+      '<div class="modal-actions-right">' +
+      '<button type="button" class="btn btn-ghost" data-action="close-modal">Отмена</button>' +
+      '<button type="submit" class="btn btn-primary">' + (record ? 'Сохранить' : 'Добавить расход') + '</button>' +
+      '</div></footer>' +
+      '</form>',
+      {
+        size: 'md',
+        onClose: function () { openTripExpensesModal(trip.id); }
+      }
+    );
+  }
+
+  function handleTripExpenseSubmit(form) {
+    clearErrors(form);
+    const data = new FormData(form);
+    const tripId = form.getAttribute('data-trip');
+    const amount = WC.parseAmount(data.get('amount'));
+    const date = String(data.get('date') || '');
+    if (!Store.isValidISO(date)) {
+      setError(form, 'date', 'Укажите корректную дату');
+      return;
+    }
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setError(form, 'amount', 'Сумма должна быть больше нуля');
+      return;
+    }
+    const id = form.getAttribute('data-id');
+    const saved = Store.saveTripExpense(tripId, {
+      id: id || undefined,
+      date: date,
+      category: String(data.get('category') || 'other'),
+      amount: amount,
+      method: String(data.get('method') || 'cash'),
+      document: String(data.get('document') || ''),
+      note: String(data.get('note') || '')
+    });
+    if (!saved) {
+      WC.toast('Не удалось сохранить расход', { type: 'error' });
+      return;
+    }
+    WC.closeModal();
+    WC.toast(id ? 'Расход обновлён' : 'Расход добавлен');
+  }
+
+  function handleTripAdvanceSubmit(form) {
+    const tripId = form.getAttribute('data-id');
+    const amount = WC.parseAmount(new FormData(form).get('advanceAmount'));
+    if (!Number.isFinite(amount) || amount < 0) {
+      WC.toast('Аванс не может быть отрицательным', { type: 'error' });
+      return;
+    }
+    Store.saveTripAdvance(tripId, amount);
+    openTripExpensesModal(tripId);
+    WC.toast('Аванс обновлён');
+  }
+
+  function deleteTripExpense(tripId, expenseId) {
+    const trip = Store.tripById(tripId);
+    if (!trip) return;
+    const snapshot = JSON.stringify(Store.state);
+    if (WC.isModalOpen()) WC.closeModal(true);
+    Store.deleteTripExpense(tripId, expenseId);
+    WC.toast('Расход удалён', {
+      actionLabel: 'Отменить',
+      timeout: 9000,
+      onAction: function () {
+        Store.replaceState(JSON.parse(snapshot), { source: 'local' });
+        if (WC.isModalOpen()) openTripExpensesModal(tripId);
+        WC.toast('Расход восстановлен', { type: 'info' });
+      }
+    });
+    openTripExpensesModal(tripId);
+  }
+
   /* ---------- регистрация ---------- */
 
   WC.openIncomeModal = openIncomeModal;
   WC.openTripModal = openTripModal;
   WC.openObjectModal = openObjectModal;
+  WC.openTripExpensesModal = openTripExpensesModal;
+  WC.openTripExpenseModal = openTripExpenseModal;
 
   WC.registerAction('add-income', function () { openIncomeModal(); });
   WC.registerAction('add-trip', function () { openTripModal(); });
@@ -420,8 +620,19 @@
   WC.registerAction('delete-income', function (element) { deleteIncome(element.getAttribute('data-id')); });
   WC.registerAction('delete-trip', function (element) { deleteTrip(element.getAttribute('data-id')); });
   WC.registerAction('delete-object', function (element) { deleteObject(element.getAttribute('data-id')); });
+  WC.registerAction('add-trip-expense', function (element) {
+    openTripExpenseModal(element.getAttribute('data-trip') || element.getAttribute('data-id'));
+  });
+  WC.registerAction('edit-trip-expense', function (element) {
+    openTripExpenseModal(element.getAttribute('data-trip'), element.getAttribute('data-id'));
+  });
+  WC.registerAction('delete-trip-expense', function (element) {
+    deleteTripExpense(element.getAttribute('data-trip'), element.getAttribute('data-id'));
+  });
 
   WC.registerSubmit('incomeForm', handleIncomeSubmit);
   WC.registerSubmit('tripForm', handleTripSubmit);
   WC.registerSubmit('objectForm', handleObjectSubmit);
+  WC.registerSubmit('tripExpenseForm', handleTripExpenseSubmit);
+  WC.registerSubmit('tripAdvanceForm', handleTripAdvanceSubmit);
 })();

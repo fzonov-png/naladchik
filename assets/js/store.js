@@ -33,6 +33,16 @@
 
   const TRIP_STATUSES = { planned: 'Запланирована', active: 'В процессе', done: 'Завершена' };
 
+  const EXPENSE_CATEGORIES = {
+    travel:          'Проезд к месту командировки',
+    lodging:         'Проживание',
+    localTransport:  'Транспорт на месте',
+    communication:   'Связь и интернет',
+    representation:  'Представительские расходы',
+    other:           'Прочие расходы'
+  };
+  const EXPENSE_CATEGORY_ORDER = ['travel', 'lodging', 'localTransport', 'communication', 'representation', 'other'];
+
   const PERIODS = {
     month: 'Этот месяц',
     prevMonth: 'Прошлый месяц',
@@ -282,6 +292,8 @@
       updatedAt: nowISO(),
       settings: {
         engineerName: '',
+        organization: '',
+        position: '',
         currency: 'RUB',
         perDiemRate: 700,
         theme: 'dark',
@@ -296,6 +308,29 @@
 
   /* ---------- нормализация ---------- */
 
+  function normalizeExpenseList(raw, fallbackDate) {
+    const list = Array.isArray(raw) ? raw : [];
+    const seen = new Set();
+    return list.filter(function (item) {
+      return item && typeof item === 'object';
+    }).map(function (item) {
+      let id = str(item.id).trim();
+      if (!id || seen.has(id)) id = uid();
+      seen.add(id);
+      return {
+        id: id,
+        date: isValidISO(item.date) ? item.date : (isValidISO(fallbackDate) ? fallbackDate : todayISO()),
+        category: EXPENSE_CATEGORIES[item.category] ? item.category : 'other',
+        amount: round2(clampNumber(item.amount, 0, 100000000000, 0)),
+        method: item.method === 'bank' ? 'bank' : 'cash',
+        document: str(item.document).trim().slice(0, 160),
+        note: str(item.note).trim().slice(0, 1000)
+      };
+    }).filter(function (item) {
+      return item.amount > 0;
+    });
+  }
+
   function normalizeState(raw) {
     const base = defaultState();
     if (!raw || typeof raw !== 'object') return base;
@@ -303,6 +338,8 @@
     const settingsRaw = raw.settings && typeof raw.settings === 'object' ? raw.settings : {};
     const settings = {
       engineerName: str(settingsRaw.engineerName).trim().slice(0, 120),
+      organization: str(settingsRaw.organization).trim().slice(0, 200),
+      position: str(settingsRaw.position).trim().slice(0, 160),
       currency: CURRENCIES[settingsRaw.currency] ? settingsRaw.currency : 'RUB',
       perDiemRate: clampNumber(settingsRaw.perDiemRate, 0, 10000000, 700),
       theme: settingsRaw.theme === 'light' ? 'light' : 'dark',
@@ -387,6 +424,8 @@
         startDate: startDate,
         endDate: endDate,
         perDiemRate: clampNumber(item.perDiemRate, 0, 10000000, settings.perDiemRate),
+        advanceAmount: round2(clampNumber(item.advanceAmount, 0, 100000000000, 0)),
+        expenses: normalizeExpenseList(item.expenses, startDate),
         transport: str(item.transport).trim().slice(0, 200),
         purpose: str(item.purpose).slice(0, 2000),
         note: str(item.note).slice(0, 2000),
@@ -515,6 +554,8 @@
       let endDate = isValidISO(data.endDate) ? data.endDate : startDate;
       if (endDate < startDate) endDate = startDate;
       const now = nowISO();
+      const index = state.trips.findIndex(function (item) { return item.id === data.id; });
+      const existing = index >= 0 ? state.trips[index] : null;
       const record = {
         id: data.id || uid(),
         destination: str(data.destination).trim().slice(0, 200) || 'Направление не указано',
@@ -522,18 +563,93 @@
         startDate: startDate,
         endDate: endDate,
         perDiemRate: round2(clampNumber(data.perDiemRate, 0, 10000000, state.settings.perDiemRate)),
+        advanceAmount: data.advanceAmount !== undefined
+          ? round2(clampNumber(data.advanceAmount, 0, 100000000000, 0))
+          : (existing ? existing.advanceAmount || 0 : 0),
+        expenses: Array.isArray(data.expenses)
+          ? normalizeExpenseList(data.expenses, startDate)
+          : (existing && Array.isArray(existing.expenses) ? existing.expenses : []),
         transport: str(data.transport).trim().slice(0, 200),
         purpose: str(data.purpose).trim().slice(0, 2000),
         note: str(data.note).trim().slice(0, 2000),
-        createdAt: data.createdAt || now,
+        createdAt: data.createdAt || (existing ? existing.createdAt : now),
         updatedAt: now
       };
-      const index = state.trips.findIndex(function (item) { return item.id === record.id; });
       if (index >= 0) state.trips[index] = record;
       else state.trips.push(record);
       saved = record;
     });
     return saved;
+  }
+
+  function tripById(id) {
+    return state.trips.find(function (trip) { return trip.id === id; }) || null;
+  }
+
+  function tripExpenses(trip) {
+    return trip && Array.isArray(trip.expenses) ? trip.expenses : [];
+  }
+
+  function tripExpensesTotal(trip) {
+    return round2(tripExpenses(trip).reduce(function (sum, expense) {
+      return sum + (Number(expense.amount) || 0);
+    }, 0));
+  }
+
+  function tripExpensesInRange(trip, from, to) {
+    return tripExpenses(trip).filter(function (expense) {
+      return withinRange(expense.date, from, to);
+    });
+  }
+
+  function tripAdvance(trip) {
+    return trip ? round2(Number(trip.advanceAmount) || 0) : 0;
+  }
+
+  function tripReportTotal(trip) {
+    return round2(tripExpensesTotal(trip) + tripPerDiem(trip));
+  }
+
+  function tripBalance(trip) {
+    return round2(tripAdvance(trip) - tripReportTotal(trip));
+  }
+
+  function saveTripExpense(tripId, data) {
+    let saved = null;
+    commit(function () {
+      const trip = tripById(tripId);
+      if (!trip) return;
+      if (!Array.isArray(trip.expenses)) trip.expenses = [];
+      const expense = normalizeExpenseList([Object.assign({}, data, { id: data.id || uid() })], trip.startDate)[0];
+      if (!expense) return;
+      const index = trip.expenses.findIndex(function (item) { return item.id === expense.id; });
+      if (index >= 0) trip.expenses[index] = expense;
+      else trip.expenses.push(expense);
+      trip.updatedAt = nowISO();
+      saved = expense;
+    });
+    return saved;
+  }
+
+  function deleteTripExpense(tripId, expenseId) {
+    commit(function () {
+      const trip = tripById(tripId);
+      if (!trip || !Array.isArray(trip.expenses)) return;
+      const index = trip.expenses.findIndex(function (item) { return item.id === expenseId; });
+      if (index < 0) return;
+      trip.expenses.splice(index, 1);
+      trip.updatedAt = nowISO();
+    });
+  }
+
+  function saveTripAdvance(tripId, amount) {
+    commit(function () {
+      const trip = tripById(tripId);
+      if (!trip) return;
+      trip.advanceAmount = round2(clampNumber(amount, 0, 100000000000, 0));
+      trip.updatedAt = nowISO();
+    });
+    return tripById(tripId);
   }
 
   function saveObject(data) {
@@ -693,6 +809,8 @@
     PAYMENT_METHODS: PAYMENT_METHODS,
     OBJECT_STATUSES: OBJECT_STATUSES,
     TRIP_STATUSES: TRIP_STATUSES,
+    EXPENSE_CATEGORIES: EXPENSE_CATEGORIES,
+    EXPENSE_CATEGORY_ORDER: EXPENSE_CATEGORY_ORDER,
     PERIODS: PERIODS,
     MONTHS_SHORT: MONTHS_SHORT,
     MONTHS_FULL: MONTHS_FULL,
@@ -702,6 +820,9 @@
     resetData: resetData,
     saveIncome: saveIncome,
     saveTrip: saveTrip,
+    saveTripExpense: saveTripExpense,
+    deleteTripExpense: deleteTripExpense,
+    saveTripAdvance: saveTripAdvance,
     saveObject: saveObject,
     saveSettings: saveSettings,
     addSource: addSource,
@@ -711,9 +832,16 @@
     tripsInRange: tripsInRange,
     objectById: objectById,
     objectName: objectName,
+    tripById: tripById,
     tripDays: tripDays,
     tripDaysWithin: tripDaysWithin,
     tripPerDiem: tripPerDiem,
+    tripExpenses: tripExpenses,
+    tripExpensesTotal: tripExpensesTotal,
+    tripExpensesInRange: tripExpensesInRange,
+    tripAdvance: tripAdvance,
+    tripReportTotal: tripReportTotal,
+    tripBalance: tripBalance,
     tripStatus: tripStatus,
     total: total,
     isIncome: isIncome,

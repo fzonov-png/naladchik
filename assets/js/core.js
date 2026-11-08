@@ -16,6 +16,7 @@
     dashboard: { title: 'Обзор', subtitle: 'Сводка по доходам и командировкам' },
     incomes: { title: 'Доходы', subtitle: 'Авансы, зарплата, отпускные и другие поступления' },
     trips: { title: 'Командировки', subtitle: 'Направления, сроки и суточные' },
+    advance: { title: 'Авансовый отчёт', subtitle: 'Расходы командировки и расчёт с подотчётным лицом' },
     objects: { title: 'Объекты', subtitle: 'Заказчики, площадки и объёмы работ' },
     reports: { title: 'Отчёты', subtitle: 'Итоги за период и выгрузки' },
     settings: { title: 'Настройки', subtitle: 'Профиль, источники и синхронизация с GitHub' }
@@ -25,6 +26,7 @@
     dashboard: { action: 'add-income', label: 'Доход', icon: 'plus' },
     incomes: { action: 'add-income', label: 'Доход', icon: 'plus' },
     trips: { action: 'add-trip', label: 'Командировка', icon: 'plus' },
+    advance: { action: 'print-advance', label: 'Печать', icon: 'printer' },
     objects: { action: 'add-object', label: 'Объект', icon: 'plus' },
     reports: { action: 'print-report', label: 'Печать', icon: 'printer' }
   };
@@ -33,6 +35,7 @@
 
   const App = {
     view: 'dashboard',
+    routeParam: '',
     period: 'month',
     customFrom: '',
     customTo: '',
@@ -414,18 +417,21 @@
   /* ---------- навигация и шапка ---------- */
 
   function viewFromHash() {
-    const match = /^#\/([a-z]+)/.exec(window.location.hash || '');
-    const view = match ? match[1] : 'dashboard';
+    const match = /^#\/([a-z]+)(?:\/(.+))?/.exec(window.location.hash || '');
+    let view = match ? match[1] : 'dashboard';
+    App.routeParam = match && match[2] ? decodeURIComponent(match[2]) : '';
+    if (view === 'advance' && !App.routeParam) view = 'trips';
     return views[view] ? view : 'dashboard';
   }
 
-  function go(view) {
+  function go(view, param) {
     if (!views[view]) return;
-    if (App.view === view && window.location.hash === '#/' + view) {
+    const hash = '#/' + view + (param ? '/' + encodeURIComponent(param) : '');
+    if (App.view === view && window.location.hash === hash) {
       renderAll();
       return;
     }
-    window.location.hash = '#/' + view;
+    window.location.hash = hash;
   }
 
   function openSyncSettings() {
@@ -460,9 +466,16 @@
     const subtitle = $('#pageSubtitle');
     if (title) title.textContent = meta.title;
     if (subtitle) {
-      subtitle.textContent = (App.view === 'dashboard' || App.view === 'reports')
-        ? range.label + ' · ' + meta.subtitle.toLowerCase()
-        : meta.subtitle;
+      if (App.view === 'advance') {
+        const trip = Store.tripById(App.routeParam);
+        subtitle.textContent = trip
+          ? trip.destination + ' · ' + fdate(trip.startDate) + ' — ' + fdate(trip.endDate)
+          : meta.subtitle;
+      } else {
+        subtitle.textContent = (App.view === 'dashboard' || App.view === 'reports')
+          ? range.label + ' · ' + meta.subtitle.toLowerCase()
+          : meta.subtitle;
+      }
     }
 
     const periodBox = $('#periodBox');
@@ -487,12 +500,14 @@
         primary.innerHTML = icon(action.icon) + '<span>' + esc(action.label) + '</span>';
       }
     }
-    document.title = meta.title + ' — Наладчик';
+    const trip = App.view === 'advance' ? Store.tripById(App.routeParam) : null;
+    document.title = (trip ? 'Авансовый отчёт — ' + trip.destination : meta.title) + ' — Наладчик';
   }
 
   function renderNav() {
     $$('.nav-item').forEach(function (link) {
-      const active = link.getAttribute('data-view') === App.view;
+      const active = link.getAttribute('data-view') === App.view ||
+        (App.view === 'advance' && link.getAttribute('data-view') === 'trips');
       link.classList.toggle('is-active', active);
       if (active) link.setAttribute('aria-current', 'page');
       else link.removeAttribute('aria-current');
@@ -760,12 +775,15 @@
     });
 
     window.addEventListener('hashchange', function () {
+      const previousParam = App.routeParam;
       const next = viewFromHash();
-      if (next === App.view) return;
-      App.view = next;
-      closeModal();
-      document.body.classList.remove('nav-open');
-      window.scrollTo({ top: 0, behavior: 'auto' });
+      if (next === App.view && App.routeParam === previousParam) return;
+      if (next !== App.view) {
+        App.view = next;
+        closeModal();
+        document.body.classList.remove('nav-open');
+        window.scrollTo({ top: 0, behavior: 'auto' });
+      }
       renderAll();
     });
 

@@ -496,6 +496,12 @@
       } else if (sort.key === 'perDiem') {
         left = Store.tripPerDiem(a);
         right = Store.tripPerDiem(b);
+      } else if (sort.key === 'expenses') {
+        left = Store.tripExpensesTotal(a);
+        right = Store.tripExpensesTotal(b);
+      } else if (sort.key === 'balance') {
+        left = Store.tripBalance(a);
+        right = Store.tripBalance(b);
       } else if (sort.key === 'destination') {
         left = a.destination;
         right = b.destination;
@@ -536,11 +542,19 @@
     const days = list.reduce(function (total, trip) { return total + Store.tripDaysWithin(trip, range.from, range.to); }, 0);
     const perDiem = list.reduce(function (total, trip) { return total + Store.tripPerDiem(trip, range.from, range.to); }, 0);
     const fullDays = list.reduce(function (total, trip) { return total + Store.tripDays(trip); }, 0);
+    const expenses = list.reduce(function (total, trip) { return total + Store.tripExpensesTotal(trip); }, 0);
+    const reportTotal = list.reduce(function (total, trip) { return total + Store.tripReportTotal(trip); }, 0);
+    const advances = list.reduce(function (total, trip) { return total + Store.tripAdvance(trip); }, 0);
+    const balance = advances - reportTotal;
 
     return '<div class="summary-bar">' +
       '<div class="summary-chip"><span>' + list.length + ' ' + plural(list.length, ['командировка', 'командировки', 'командировок']) + '</span></div>' +
       '<div class="summary-chip"><span class="muted">Суток в периоде</span><b>' + days + '</b></div>' +
       '<div class="summary-chip"><span class="muted">Суточные</span><b>' + money(perDiem) + '</b></div>' +
+      '<div class="summary-chip"><span class="muted">Расходы</span><b>' + money(expenses) + '</b></div>' +
+      '<div class="summary-chip"><span class="muted">К отчёту</span><b>' + money(reportTotal) + '</b></div>' +
+      '<div class="summary-chip"><span class="muted">Авансы</span><b>' + money(advances) + '</b></div>' +
+      '<div class="summary-chip"><span class="muted">' + (balance > 0 ? 'К возврату' : balance < 0 ? 'К возмещению' : 'Расчёт') + '</span><b class="' + (balance > 0 ? 'money-return' : balance < 0 ? 'money-due' : '') + '">' + money(Math.abs(balance)) + '</b></div>' +
       (fullDays !== days ? '<div class="summary-chip"><span class="muted">Всего суток по поездкам</span><b>' + fullDays + '</b></div>' : '') +
       '</div>' +
       '<section class="card table-card"><div class="table-wrap"><table class="data-table" data-table="trips">' +
@@ -549,6 +563,8 @@
       '<th class="sortable" data-sort="startDate" aria-sort="' + ariaSort('trips', 'startDate') + '">Период ' + sortMark('trips', 'startDate') + '</th>' +
       '<th class="sortable num" data-sort="days" aria-sort="' + ariaSort('trips', 'days') + '">Суток ' + sortMark('trips', 'days') + '</th>' +
       '<th class="sortable num" data-sort="perDiem" aria-sort="' + ariaSort('trips', 'perDiem') + '">Суточные ' + sortMark('trips', 'perDiem') + '</th>' +
+      '<th class="sortable num" data-sort="expenses" aria-sort="' + ariaSort('trips', 'expenses') + '">Расходы ' + sortMark('trips', 'expenses') + '</th>' +
+      '<th class="sortable num" data-sort="balance" aria-sort="' + ariaSort('trips', 'balance') + '">Баланс ' + sortMark('trips', 'balance') + '</th>' +
       '<th>Статус</th>' +
       '<th class="actions-col"><span class="sr-only">Действия</span></th>' +
       '</tr></thead><tbody>' +
@@ -558,6 +574,11 @@
         const fullTripDays = Store.tripDays(trip);
         const perDiemInRange = Store.tripPerDiem(trip, range.from, range.to);
         const showPartial = daysInRange !== fullTripDays;
+        const expensesTotal = Store.tripExpensesTotal(trip);
+        const advance = Store.tripAdvance(trip);
+        const balanceValue = Store.tripBalance(trip);
+        const balanceText = balanceValue > 0 ? 'к возврату' : balanceValue < 0 ? 'к возмещению' : 'расчёт закрыт';
+        const balanceClass = balanceValue > 0 ? 'money-return' : balanceValue < 0 ? 'money-due' : 'muted';
         return '<tr>' +
           '<td><div class="cell-main">' + esc(trip.destination) + '</div>' +
           '<div class="cell-sub">' + (objectName ? esc(objectName) : 'Без объекта') + (trip.transport ? ' · ' + esc(trip.transport) : '') + '</div></td>' +
@@ -565,8 +586,14 @@
           '<td class="num"><b>' + fullTripDays + '</b>' + (showPartial ? '<div class="cell-sub">в периоде: ' + daysInRange + '</div>' : '') + '</td>' +
           '<td class="num"><b>' + money(Store.tripPerDiem(trip)) + '</b>' +
           '<div class="cell-sub">' + money(trip.perDiemRate) + ' / сутки' + (showPartial ? ' · в периоде ' + money(perDiemInRange) : '') + '</div></td>' +
+          '<td class="num"><b>' + money(expensesTotal) + '</b>' +
+          '<div class="cell-sub">аванс ' + money(advance) + '</div></td>' +
+          '<td class="num"><b class="' + balanceClass + '">' + money(Math.abs(balanceValue)) + '</b>' +
+          '<div class="cell-sub">' + balanceText + '</div></td>' +
           '<td>' + WC.tripStatusBadge(Store.tripStatus(trip)) + '</td>' +
           '<td class="actions-col"><div class="row-actions">' +
+          '<button type="button" class="icon-btn icon-btn-sm" data-action="open-trip-expenses" data-id="' + esc(trip.id) + '" title="Расходы и аванс">' + icon('wallet') + '</button>' +
+          '<button type="button" class="icon-btn icon-btn-sm" data-action="open-advance-report" data-id="' + esc(trip.id) + '" title="Авансовый отчёт">' + icon('printer') + '</button>' +
           '<button type="button" class="icon-btn icon-btn-sm" data-action="edit-trip" data-id="' + esc(trip.id) + '" title="Изменить">' + icon('edit') + '</button>' +
           '<button type="button" class="icon-btn icon-btn-sm danger" data-action="delete-trip" data-id="' + esc(trip.id) + '" title="Удалить">' + icon('trash') + '</button>' +
           '</div></td>' +
@@ -781,6 +808,7 @@
     return '<div class="report-actions">' +
       '<button type="button" class="btn btn-ghost btn-sm" data-action="export-incomes-csv" data-scope="period">' + icon('download') + 'CSV доходов</button>' +
       '<button type="button" class="btn btn-ghost btn-sm" data-action="export-trips-csv" data-scope="period">' + icon('download') + 'CSV командировок</button>' +
+      '<button type="button" class="btn btn-ghost btn-sm" data-action="export-expenses-csv" data-scope="period">' + icon('download') + 'CSV расходов</button>' +
       '<button type="button" class="btn btn-ghost btn-sm" data-action="print-report">' + icon('printer') + 'Печать</button>' +
       '</div>' +
 
@@ -834,6 +862,155 @@
       }).join('') : '<tr><td colspan="4" class="muted">Нет данных</td></tr>') +
       '</tbody></table></div>' +
       '</section>' +
+      '</div>' +
+
+      '<section class="card report-card advance-list-card">' +
+      '<header class="card-head"><div><h2>Авансовые отчёты</h2><p>Расходы, суточные и расчёт с подотчётным лицом по каждой командировке</p></div>' +
+      '<span class="report-stamp">' + trips.length + ' ' + plural(trips.length, ['поездка', 'поездки', 'поездок']) + '</span></header>' +
+      (trips.length
+        ? '<div class="table-wrap"><table class="data-table report-table"><thead><tr>' +
+          '<th>Командировка</th><th>Период</th><th class="num">Суток</th><th class="num">Расходы</th><th class="num">Суточные</th><th class="num">Аванс</th><th class="num">Баланс</th><th class="actions-col"><span class="sr-only">Отчёт</span></th>' +
+          '</tr></thead><tbody>' +
+          trips.slice().sort(function (a, b) { return b.startDate.localeCompare(a.startDate); }).map(function (trip) {
+            const expenses = Store.tripExpensesTotal(trip);
+            const advance = Store.tripAdvance(trip);
+            const balanceValue = Store.tripBalance(trip);
+            const balanceClass = balanceValue > 0 ? 'money-return' : balanceValue < 0 ? 'money-due' : 'muted';
+            const balanceLabel = balanceValue > 0 ? 'к возврату' : balanceValue < 0 ? 'к возмещению' : 'закрыт';
+            return '<tr>' +
+              '<td><div class="cell-main">' + esc(trip.destination) + '</div><div class="cell-sub">' + esc(Store.objectName(trip.objectId) || 'Без объекта') + '</div></td>' +
+              '<td class="nowrap">' + tripPeriod(trip) + '</td>' +
+              '<td class="num">' + Store.tripDays(trip) + '</td>' +
+              '<td class="num">' + money(expenses) + '</td>' +
+              '<td class="num">' + money(Store.tripPerDiem(trip)) + '</td>' +
+              '<td class="num">' + money(advance) + '</td>' +
+              '<td class="num"><b class="' + balanceClass + '">' + money(Math.abs(balanceValue)) + '</b><div class="cell-sub">' + balanceLabel + '</div></td>' +
+              '<td class="actions-col"><button type="button" class="icon-btn icon-btn-sm" data-action="open-advance-report" data-id="' + esc(trip.id) + '" title="Открыть авансовый отчёт">' + icon('printer') + '</button></td>' +
+              '</tr>';
+          }).join('') +
+          '</tbody></table></div>'
+        : '<p class="advance-empty">За выбранный период командировок нет. Смените период или добавьте поездку.</p>') +
+      '</section>';
+  }
+
+  /* ============================================================
+     АВАНСОВЫЙ ОТЧЁТ
+     ============================================================ */
+
+  function advanceReportNumber(trip) {
+    const year = (trip.startDate || '').slice(0, 4) || String(new Date().getFullYear());
+    const suffix = String(trip.id || '').replace(/[^a-z0-9]/gi, '').slice(-4).toUpperCase() || '0001';
+    return 'АО-' + year + '-' + suffix;
+  }
+
+  function renderAdvanceReport() {
+    const trip = Store.tripById(App.routeParam);
+    if (!trip) {
+      return emptyState({
+        icon: 'wallet',
+        title: 'Командировка не найдена',
+        text: 'Возможно, запись была удалена. Вернитесь к списку командировок.',
+        action: { action: 'go-trips', label: 'К командировкам', icon: 'plane' }
+      });
+    }
+
+    const settings = Store.state.settings;
+    const days = Store.tripDays(trip);
+    const perDiem = Store.tripPerDiem(trip);
+    const expenses = Store.tripExpenses(trip).slice().sort(function (a, b) {
+      return (a.date || '').localeCompare(b.date || '');
+    });
+    const reportTotal = Store.tripReportTotal(trip);
+    const advance = Store.tripAdvance(trip);
+    const balance = advance - reportTotal;
+    const balanceLabel = balance > 0 ? 'Остаток к возврату' : balance < 0 ? 'Перерасход к возмещению' : 'Расчёт закрыт';
+    const balanceTone = balance > 0 ? 'money-return' : balance < 0 ? 'money-due' : 'muted';
+    const objectName = Store.objectName(trip.objectId);
+    const employee = settings.engineerName || '____________________________';
+    const organization = settings.organization || '';
+    const position = settings.position || '';
+    const todayText = Store.formatDate(Store.todayISO());
+    const tripLabel = trip.startDate === trip.endDate
+      ? Store.formatDate(trip.startDate)
+      : Store.formatDate(trip.startDate) + ' — ' + Store.formatDate(trip.endDate);
+
+    const expenseRows = expenses.map(function (expense, index) {
+      return '<tr>' +
+        '<td class="num">' + (index + 1) + '</td>' +
+        '<td class="nowrap">' + Store.formatDate(expense.date) + '</td>' +
+        '<td>' + esc(Store.EXPENSE_CATEGORIES[expense.category] || 'Прочие расходы') +
+        (expense.note ? '<div class="advance-note">' + esc(expense.note) + '</div>' : '') + '</td>' +
+        '<td>' + esc(expense.document || '—') + '</td>' +
+        '<td class="num">' + money(expense.amount) + '</td>' +
+        '</tr>';
+    }).join('');
+
+    const perDiemRow = perDiem > 0
+      ? '<tr>' +
+        '<td class="num">' + (expenses.length + 1) + '</td>' +
+        '<td>' + tripLabel + '</td>' +
+        '<td>Суточные за ' + days + ' ' + plural(days, ['сутки', 'суток', 'суток']) +
+        '<div class="advance-note">' + money(trip.perDiemRate) + ' за сутки · возмещение расходов, не доход</div></td>' +
+        '<td>Расчёт суточных</td>' +
+        '<td class="num">' + money(perDiem) + '</td>' +
+        '</tr>'
+      : '';
+
+    const emptyRows = !expenseRows && !perDiemRow
+      ? '<tr><td colspan="5" class="advance-empty-cell">Расходы не внесены</td></tr>'
+      : '';
+
+    return '<div class="advance-view">' +
+      '<div class="advance-toolbar">' +
+      '<div class="advance-toolbar-left">' +
+      '<button type="button" class="btn btn-ghost btn-sm" data-action="go-trips">' + icon('plane') + 'К командировкам</button>' +
+      '</div>' +
+      '<div class="advance-toolbar-right">' +
+      '<button type="button" class="btn btn-ghost btn-sm" data-action="open-trip-expenses" data-id="' + esc(trip.id) + '">' + icon('wallet') + 'Расходы и аванс</button>' +
+      '<button type="button" class="btn btn-primary btn-sm" data-action="print-advance">' + icon('printer') + 'Печать отчёта</button>' +
+      '</div>' +
+      '</div>' +
+
+      '<article class="advance-sheet" aria-label="Авансовый отчёт">' +
+      '<header class="advance-head">' +
+      '<div class="advance-brand">' +
+      '<b>' + esc(organization || 'Организация') + '</b>' +
+      '<span>' + esc(position || 'Подотчётное лицо') + '</span>' +
+      '</div>' +
+      '<div class="advance-heading"><h1>Авансовый отчёт</h1>' +
+      '<p>№ ' + esc(advanceReportNumber(trip)) + ' от ' + todayText + '</p></div>' +
+      '</header>' +
+
+      '<table class="advance-meta"><tbody>' +
+      '<tr><th>Подотчётное лицо</th><td>' + esc(employee) + '</td><th>Должность</th><td>' + esc(position || '—') + '</td></tr>' +
+      '<tr><th>Организация</th><td colspan="3">' + esc(organization || '—') + '</td></tr>' +
+      '<tr><th>Направление</th><td>' + esc(trip.destination) + '</td><th>Объект</th><td>' + esc(objectName || '—') + '</td></tr>' +
+      '<tr><th>Период командировки</th><td>' + tripLabel + ' · ' + days + ' ' + plural(days, ['сутки', 'суток', 'суток']) + '</td><th>Транспорт</th><td>' + esc(trip.transport || '—') + '</td></tr>' +
+      (trip.purpose ? '<tr><th>Назначение</th><td colspan="3">' + esc(trip.purpose) + '</td></tr>' : '') +
+      '</tbody></table>' +
+
+      '<h2 class="advance-section-title">Расходы, произведённые в командировке</h2>' +
+      '<table class="advance-table">' +
+      '<thead><tr><th class="num">№</th><th>Дата</th><th>Вид расхода</th><th>Документ</th><th class="num">Сумма</th></tr></thead>' +
+      '<tbody>' + expenseRows + perDiemRow + emptyRows +
+      '<tr class="advance-total"><td colspan="4">Итого расходов</td><td class="num">' + money(reportTotal) + '</td></tr>' +
+      '</tbody></table>' +
+
+      '<div class="advance-summary">' +
+      '<div class="advance-summary-item"><span>Получено под отчёт (аванс)</span><b>' + money(advance) + '</b></div>' +
+      '<div class="advance-summary-item"><span>Израсходовано</span><b>' + money(reportTotal) + '</b></div>' +
+      '<div class="advance-summary-item advance-summary-total"><span>' + balanceLabel + '</span><b class="' + balanceTone + '">' + money(Math.abs(balance)) + '</b></div>' +
+      '</div>' +
+
+      '<p class="advance-note-line">Приложений: ' + expenses.length + ' ' + plural(expenses.length, ['документ', 'документа', 'документов']) + '. Суточные начислены за ' + days + ' ' + plural(days, ['сутки', 'суток', 'суток']) + ' и включены в итог отчёта; в доходы они не входят.</p>' +
+
+      '<footer class="advance-signatures">' +
+      '<div class="advance-sign"><span>Подотчётное лицо</span><div class="advance-sign-line"><b>' + esc(employee) + '</b></div></div>' +
+      '<div class="advance-sign"><span>Бухгалтер</span><div class="advance-sign-line"><b>&nbsp;</b></div></div>' +
+      '<div class="advance-sign"><span>Руководитель</span><div class="advance-sign-line"><b>&nbsp;</b></div></div>' +
+      '<div class="advance-sign advance-sign-date"><span>Дата</span><div class="advance-sign-line"><b>' + todayText + '</b></div></div>' +
+      '</footer>' +
+      '</article>' +
       '</div>';
   }
 
@@ -905,10 +1082,21 @@
   WC.registerAction('go-incomes', function () { WC.go('incomes'); });
   WC.registerAction('go-trips', function () { WC.go('trips'); });
   WC.registerAction('print-report', function () { window.print(); });
+  WC.registerAction('open-trip-expenses', function (element) {
+    if (typeof WC.openTripExpensesModal === 'function') {
+      WC.openTripExpensesModal(element.getAttribute('data-id'));
+    }
+  });
+  WC.registerAction('open-advance-report', function (element) {
+    if (WC.isModalOpen()) WC.closeModal();
+    WC.go('advance', element.getAttribute('data-id'));
+  });
+  WC.registerAction('print-advance', function () { window.print(); });
 
   WC.registerView('dashboard', renderDashboard);
   WC.registerView('incomes', renderIncomes);
   WC.registerView('trips', renderTrips);
+  WC.registerView('advance', renderAdvanceReport);
   WC.registerView('objects', renderObjects);
   WC.registerView('reports', renderReports);
 
