@@ -950,7 +950,7 @@
         '<td class="num">' + (expenses.length + 1) + '</td>' +
         '<td>' + tripLabel + '</td>' +
         '<td>Суточные за ' + days + ' ' + plural(days, ['сутки', 'суток', 'суток']) +
-        '<div class="advance-note">' + money(trip.perDiemRate) + ' за сутки · возмещение расходов, не доход</div></td>' +
+        '<div class="advance-note">' + money(trip.perDiemRate) + ' за сутки · не входит в доходы</div></td>' +
         '<td>Расчёт суточных</td>' +
         '<td class="num">' + money(perDiem) + '</td>' +
         '</tr>'
