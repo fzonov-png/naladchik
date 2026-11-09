@@ -132,7 +132,7 @@
       '<section class="card settings-card settings-wide">' +
       '<header class="card-head"><div><h2>О приложении</h2><p>Локальное приложение без сервера</p></div></header>' +
       '<div class="about-grid">' +
-      '<div><span>Версия</span><b>1.2.1</b></div>' +
+      '<div><span>Версия</span><b>1.2.2</b></div>' +
       '<div><span>Хранение</span><b>localStorage + GitHub Gist</b></div>' +
       '<div><span>Формат данных</span><b>JSON</b></div>' +
       '<div><span>Валюта</span><b>' + esc(Store.CURRENCIES[settings.currency].label) + '</b></div>' +

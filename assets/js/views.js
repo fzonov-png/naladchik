@@ -950,7 +950,7 @@
         '<td class="num">' + (expenses.length + 1) + '</td>' +
         '<td>' + tripLabel + '</td>' +
         '<td>Суточные за ' + days + ' ' + plural(days, ['сутки', 'суток', 'суток']) +
-        '<div class="advance-note">' + money(trip.perDiemRate) + ' за сутки · не входит в доходы</div></td>' +
+        '<div class="advance-note">' + money(trip.perDiemRate) + ' за сутки</div></td>' +
         '<td>Расчёт суточных</td>' +
         '<td class="num">' + money(perDiem) + '</td>' +
         '</tr>'
@@ -1002,7 +1002,7 @@
       '<div class="advance-summary-item advance-summary-total"><span>' + balanceLabel + '</span><b class="' + balanceTone + '">' + money(Math.abs(balance)) + '</b></div>' +
       '</div>' +
 
-      '<p class="advance-note-line">Приложений: ' + expenses.length + ' ' + plural(expenses.length, ['документ', 'документа', 'документов']) + '. Суточные начислены за ' + days + ' ' + plural(days, ['сутки', 'суток', 'суток']) + ' и включены в итог отчёта; в доходы они не входят.</p>' +
+      '<p class="advance-note-line">Приложений: ' + expenses.length + ' ' + plural(expenses.length, ['документ', 'документа', 'документов']) + '. Суточные начислены за ' + days + ' ' + plural(days, ['сутки', 'суток', 'суток']) + ' и включены в итог отчёта.</p>' +
 
       '<footer class="advance-signatures">' +
       '<div class="advance-sign"><span>Подотчётное лицо</span><div class="advance-sign-line"><b>' + esc(employee) + '</b></div></div>' +
