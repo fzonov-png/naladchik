@@ -637,6 +637,7 @@ img, svg { display: block; }
 
 .card-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
   gap: 14px;
@@ -644,6 +645,7 @@ img, svg { display: block; }
 }
 .card-head h2 { font-size: 14.5px; font-weight: 650; letter-spacing: -0.01em; display: flex; align-items: center; gap: 8px; }
 .card-head p { margin-top: 3px; font-size: 11.5px; color: var(--muted); }
+.card-head > .badge { max-width: 100%; white-space: normal; }
 .eyebrow { display: block; font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted-2); margin-bottom: 4px; }
 
 .legend { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -823,7 +825,9 @@ img, svg { display: block; }
 .summary-chip .legend-dot { width: 6px; height: 6px; }
 
 .table-card { padding: 0; overflow: hidden; }
-.table-wrap { width: 100%; overflow-x: auto; }
+/* contain: paint не даёт широкой таблице раздувать scrollWidth документа
+   (иначе на мобильных страница уезжает по горизонтали). */
+.table-wrap { width: 100%; overflow-x: auto; contain: paint; }
 .data-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .data-table th {
   padding: 11px 14px;
@@ -946,10 +950,10 @@ img, svg { display: block; }
 .report-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
 .report-kpi .kpi-card { padding: 14px 16px; }
 .report-kpi .kpi-value { font-size: 21px; margin-top: 8px; }
-.report-card { padding: 18px 20px 20px; margin-bottom: 16px; }
+.report-card { padding: 18px 20px 20px; margin-bottom: 16px; min-width: 0; }
 .report-card .card-head { margin-bottom: 10px; }
 .report-stamp { font-size: 10.5px; color: var(--muted-2); white-space: nowrap; }
-.report-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.report-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .report-grid .report-card { margin-bottom: 0; }
 .report-table td, .report-table th { padding: 9px 12px; }
 .report-table .total-row td { font-weight: 700; background: rgba(148, 183, 220, 0.06); border-top: 1px solid var(--border-strong); }
@@ -1303,7 +1307,7 @@ img, svg { display: block; }
   .dash-grid { grid-template-columns: 1fr; }
   .dash-grid .span-2 { grid-column: auto; }
   .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .report-grid { grid-template-columns: 1fr; }
+  .report-grid { grid-template-columns: minmax(0, 1fr); }
   .report-actions { justify-content: flex-start; }
   .welcome { padding: 24px; }
   .welcome h2 { font-size: 20px; }
@@ -1669,4 +1673,186 @@ img, svg { display: block; }
   a { color: #10202f; text-decoration: none; }
   .welcome, .empty-state { break-inside: avoid; }
   * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
+
+/* ============================================================
+   1.3.0 — расходы, долги, анализ
+   ============================================================ */
+
+.kpi-icon.tone-rose { background: rgba(248, 113, 113, 0.14); color: var(--red); }
+.chart-bar-expense { fill: var(--red); }
+.chart-bar-debt { fill: var(--violet); }
+.legend-dot.expense { background: var(--red); }
+.legend-dot.debt { background: var(--violet); }
+
+/* --- фильтры долгов --- */
+
+.debt-filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 0.16s ease, color 0.16s ease, background 0.16s ease;
+}
+.filter-chip span {
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 650;
+  text-align: center;
+}
+.filter-chip:hover { border-color: var(--border-strong); color: var(--text); }
+.filter-chip.is-active { border-color: rgba(96, 165, 250, 0.5); background: rgba(96, 165, 250, 0.12); color: var(--text); }
+.filter-chip.is-active span { background: rgba(96, 165, 250, 0.2); color: var(--blue); }
+
+/* --- карточки долгов --- */
+
+.debt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+.debt-card { display: flex; flex-direction: column; gap: 14px; padding: 18px 20px 16px; }
+.debt-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.debt-head h2 { font-size: 15px; font-weight: 650; letter-spacing: -0.01em; }
+.debt-head p { margin-top: 3px; font-size: 11.5px; color: var(--muted); }
+.debt-badges { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.debt-badge-none { display: none; }
+.badge.debt-status { font-size: 10.5px; }
+.badge.debt-status-active { color: var(--blue); background: rgba(96, 165, 250, 0.14); }
+.badge.debt-status-paid { color: var(--green); background: rgba(52, 211, 153, 0.14); }
+.badge.debt-status-overdue { color: var(--red); background: rgba(248, 113, 113, 0.14); }
+
+.debt-progress-block { display: flex; flex-direction: column; gap: 6px; }
+.debt-progress-top, .debt-progress-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 11.5px; color: var(--muted); }
+.debt-progress-top b { color: var(--text); font-size: 12px; font-variant-numeric: tabular-nums; }
+.debt-progress { height: 8px; border-radius: 999px; background: var(--surface-3); overflow: hidden; }
+.debt-progress i {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--blue), var(--green));
+  transition: width 0.3s ease;
+}
+.debt-paid .debt-progress i { background: linear-gradient(90deg, var(--green), #6ee7b7); }
+.debt-overdue .debt-progress i { background: linear-gradient(90deg, var(--amber), var(--red)); }
+
+.debt-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+.debt-stats > div {
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+  min-width: 0;
+}
+.debt-stats span { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+.debt-stats b {
+  display: block;
+  margin-top: 4px;
+  font-size: 13px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.debt-meta { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--muted); }
+.debt-meta .icon { width: 14px; height: 14px; flex: none; }
+.debt-note { font-size: 11.5px; line-height: 1.55; color: var(--muted); }
+.debt-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: auto; }
+.debt-actions .btn { min-width: 0; }
+.debt-payment-form {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+.debt-payment-form h3 { font-size: 13px; margin-bottom: 10px; }
+.debt-payment-actions { display: flex; justify-content: flex-end; margin-top: 10px; }
+.debt-summary { margin-bottom: 14px; }
+
+/* --- анализ --- */
+
+.analysis-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.analysis-grid > .card { padding: 18px 20px 20px; min-width: 0; }
+.analysis-grid .span-2 { grid-column: span 2; }
+.analysis-grid .span-3 { grid-column: span 3; }
+.recommendations { display: flex; flex-direction: column; gap: 10px; }
+.recommendation {
+  display: flex;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+.rec-icon {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--surface-3);
+  color: var(--muted);
+}
+.rec-icon .icon { width: 16px; height: 16px; }
+.recommendation h3 { font-size: 13px; font-weight: 650; letter-spacing: -0.01em; }
+.recommendation p { margin-top: 3px; font-size: 11.5px; line-height: 1.55; color: var(--muted); }
+.rec-good { border-color: rgba(52, 211, 153, 0.24); }
+.rec-good .rec-icon { background: rgba(52, 211, 153, 0.14); color: var(--green); }
+.rec-warn { border-color: rgba(251, 191, 36, 0.26); }
+.rec-warn .rec-icon { background: rgba(251, 191, 36, 0.14); color: var(--amber); }
+.rec-bad { border-color: rgba(248, 113, 113, 0.28); }
+.rec-bad .rec-icon { background: rgba(248, 113, 113, 0.14); color: var(--red); }
+.rec-info .rec-icon { background: rgba(96, 165, 250, 0.14); color: var(--blue); }
+
+.budget-rules { display: flex; flex-direction: column; gap: 15px; }
+.budget-rule-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; font-size: 12px; }
+.budget-rule-head small { margin-left: 4px; font-size: 10.5px; color: var(--muted); }
+.budget-rule-head b { font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.budget-bar { position: relative; height: 9px; margin-top: 6px; border-radius: 999px; background: var(--surface-3); overflow: hidden; }
+.budget-bar i { display: block; height: 100%; border-radius: 999px; background: var(--blue); }
+.budget-rule.tone-amber .budget-bar i { background: var(--amber); }
+.budget-rule.tone-green .budget-bar i { background: var(--green); }
+.budget-mark { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--text); opacity: 0.5; }
+.budget-rule-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 5px; font-size: 10.5px; color: var(--muted); }
+.analysis-footnote {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 16px;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+.analysis-footnote .icon { width: 15px; height: 15px; flex: none; margin-top: 1px; }
+
+@media (max-width: 1280px) {
+  .analysis-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .analysis-grid .span-2 { grid-column: span 2; }
+  .analysis-grid .span-3 { grid-column: span 2; }
+}
+
+@media (max-width: 860px) {
+  .analysis-grid { grid-template-columns: 1fr; }
+  .analysis-grid .span-2 { grid-column: auto; }
+  .analysis-grid .span-3 { grid-column: auto; }
+  .debt-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 620px) {
+  .debt-actions { flex-wrap: wrap; }
+  .debt-stats { grid-template-columns: 1fr; }
+  .recommendation { padding: 11px 12px; }
+  .filter-chip { flex: 1 1 calc(50% - 6px); justify-content: center; }
 }

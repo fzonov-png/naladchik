@@ -90,9 +90,19 @@
     const incomes = Store.incomesInRange(range.from, range.to);
     const incomeRecords = Store.incomeRecords(incomes);
     const trips = Store.tripsInRange(range.from, range.to);
+    const expenses = Store.expensesInRange(range.from, range.to);
+    const expensesTotal = sum(expenses);
+    const debtPayments = Store.state.debts.reduce(function (total, debt) {
+      return total + Store.debtPaymentsInRange(debt, range.from, range.to).reduce(function (sumPayments, payment) {
+        return sumPayments + payment.amount;
+      }, 0);
+    }, 0);
+    const debtsRemaining = Store.debtsRemainingTotal();
+    const debtsMonthly = Store.debtsMonthlyTotal();
     const cash = sum(incomeRecords.filter(function (item) { return item.method === 'cash'; }));
     const bank = sum(incomeRecords.filter(function (item) { return item.method === 'bank'; }));
     const incomeTotal = cash + bank;
+    const freeCash = incomeTotal - expensesTotal - debtPayments;
     const tripDays = trips.reduce(function (total, trip) {
       return total + Store.tripDaysWithin(trip, range.from, range.to);
     }, 0);
@@ -104,14 +114,14 @@
       return '<section class="card welcome">' +
         '<div class="welcome-top">' +
         '<span class="welcome-mark">Н</span>' +
-        '<div><span class="eyebrow">Личный кабинет</span><h2>Учёт доходов и командировок инженера-наладчика</h2>' +
-        '<p>Все выплаты, наличные и безналичные поступления, источники дохода, поездки и суточные — в одном месте. Данные хранятся локально и могут синхронизироваться с GitHub.</p></div>' +
+        '<div><span class="eyebrow">Личный кабинет</span><h2>Учёт доходов, расходов и командировок инженера-наладчика</h2>' +
+        '<p>Все выплаты, ежедневные расходы, долги, поездки и суточные — в одном месте. Данные хранятся локально и могут синхронизироваться с GitHub.</p></div>' +
         '</div>' +
         '<div class="welcome-grid">' +
         '<div class="welcome-item">' + icon('wallet') + '<div><b>Все доходы</b><span>Аванс, окончательная зарплата, отпускные, премии и прочие поступления. Суточные учитываются отдельно и не входят в доход.</span></div></div>' +
-        '<div class="welcome-item">' + icon('cash') + '<div><b>Наличные и безналичные</b><span>Раздельный учёт способа получения и источника дохода.</span></div></div>' +
-        '<div class="welcome-item">' + icon('plane') + '<div><b>Командировки</b><span>Направление, сроки, количество суток и расчёт суточных.</span></div></div>' +
-        '<div class="welcome-item">' + icon('github') + '<div><b>Данные на GitHub</b><span>Приватный Gist как личное облако и резервная копия.</span></div></div>' +
+        '<div class="welcome-item">' + icon('receipt') + '<div><b>Ежедневные расходы</b><span>Продукты, жильё, транспорт, кафе и покупки — отдельно от командировочных затрат.</span></div></div>' +
+        '<div class="welcome-item">' + icon('credit-card') + '<div><b>Долги и платежи</b><span>Кредиты, рассрочки и ипотека: остаток, график и прогресс погашения.</span></div></div>' +
+        '<div class="welcome-item">' + icon('lightbulb') + '<div><b>Анализ бюджета</b><span>Свободный остаток, норма сбережений, долговая нагрузка и рекомендации.</span></div></div>' +
         '</div>' +
         '<div class="welcome-actions">' +
         '<button type="button" class="btn btn-primary" data-action="add-income">' + icon('plus') + 'Добавить первый доход</button>' +
@@ -165,6 +175,12 @@
         '<span class="muted">' + trips.length + ' ' + plural(trips.length, ['поездка', 'поездки', 'поездок']) + ' за период</span>') +
       kpiCard('Суточные', money(perDiem), 'calendar', 'amber',
         '<span class="muted">' + (tripDays ? money(perDiemRate) + ' / сутки' : 'нет поездок за период') + '</span>') +
+      kpiCard('Расходы за период', money(expensesTotal), 'receipt', 'rose',
+        '<span class="muted">' + expenses.length + ' ' + plural(expenses.length, ['трата', 'траты', 'трат']) + ' · личный бюджет</span>') +
+      kpiCard('Свободный остаток', money(freeCash), 'wallet', freeCash >= 0 ? 'green' : 'rose',
+        '<span class="muted">доходы − расходы − платежи по долгам</span>') +
+      kpiCard('Долги', money(debtsRemaining), 'credit-card', 'violet',
+        '<span class="muted">' + money(debtsMonthly) + ' / мес. по графику</span>') +
       '</div>' +
 
       '<div class="dash-grid">' +
@@ -680,6 +696,535 @@
   }
 
   /* ============================================================
+     ЕЖЕДНЕВНЫЕ РАСХОДЫ
+     ============================================================ */
+
+  function filteredExpenses() {
+    const range = getRange();
+    let list = Store.expensesInRange(range.from, range.to);
+    const filters = App.expenseFilters;
+    const search = filters.search.trim().toLowerCase();
+    if (filters.category) list = list.filter(function (item) { return item.category === filters.category; });
+    if (filters.method) list = list.filter(function (item) { return item.method === filters.method; });
+    if (search) {
+      list = list.filter(function (item) {
+        const haystack = [
+          Store.lifeCategoryLabel(item.category),
+          item.note,
+          item.method === 'cash' ? 'наличные' : 'безналичные',
+          String(item.amount)
+        ].join(' ').toLowerCase();
+        return haystack.indexOf(search) !== -1;
+      });
+    }
+    const sort = App.sort.expenses;
+    const direction = sort.dir === 'asc' ? 1 : -1;
+    return list.slice().sort(function (a, b) {
+      let left;
+      let right;
+      if (sort.key === 'amount') {
+        left = a.amount;
+        right = b.amount;
+      } else if (sort.key === 'category') {
+        left = Store.lifeCategoryLabel(a.category);
+        right = Store.lifeCategoryLabel(b.category);
+      } else if (sort.key === 'method') {
+        left = a.method === 'cash' ? 'Наличные' : 'Безналичные';
+        right = b.method === 'cash' ? 'Наличные' : 'Безналичные';
+      } else {
+        left = a.date;
+        right = b.date;
+      }
+      if (typeof left === 'number' && typeof right === 'number') {
+        return (left - right) * direction;
+      }
+      const result = String(left).localeCompare(String(right), 'ru');
+      return (result || a.date.localeCompare(b.date)) * direction;
+    });
+  }
+
+  function expenseTableHtml(list) {
+    if (!list.length) {
+      const filters = App.expenseFilters;
+      const filtersActive = Boolean(filters.search || filters.category || filters.method);
+      if (Store.state.expenses.length && !filtersActive) {
+        return emptyState({
+          icon: 'receipt',
+          title: 'За выбранный период расходов нет',
+          text: 'Измените период в шапке или посмотрите все траты за всё время.',
+          action: { action: 'set-period-all', label: 'Показать всё время', icon: 'calendar' }
+        });
+      }
+      return emptyState({
+        icon: 'receipt',
+        title: Store.state.expenses.length ? 'Ничего не найдено' : 'Пока нет ежедневных расходов',
+        text: Store.state.expenses.length ? 'Попробуйте изменить фильтры или период.' : 'Добавьте продукты, транспорт, кафе, ЖКХ и другие личные траты — отдельно от командировок.',
+        action: Store.state.expenses.length ? { action: 'reset-expense-filters', label: 'Сбросить фильтры', icon: 'refresh' } : { action: 'add-expense', label: 'Добавить расход', icon: 'plus' }
+      });
+    }
+
+    const total = sum(list);
+    const cash = sum(list.filter(function (item) { return item.method === 'cash'; }));
+    const bank = total - cash;
+    const categories = Store.expenseCategoriesTotal(list);
+    const top = categories[0];
+
+    return '<div class="summary-bar">' +
+      '<div class="summary-chip"><span>' + list.length + ' ' + plural(list.length, ['трата', 'траты', 'трат']) + '</span></div>' +
+      '<div class="summary-chip"><span class="muted">Всего расходов</span><b>' + money(total) + '</b></div>' +
+      '<div class="summary-chip"><i class="legend-dot cash"></i><span>Наличные</span><b>' + money(cash) + '</b></div>' +
+      '<div class="summary-chip"><i class="legend-dot bank"></i><span>Безналичные</span><b>' + money(bank) + '</b></div>' +
+      (top ? '<div class="summary-chip"><span class="muted">Больше всего</span><b>' + esc(top.label) + ' · ' + share(top.value, total) + '</b></div>' : '') +
+      '</div>' +
+      '<section class="card table-card"><div class="table-wrap"><table class="data-table" data-table="expenses">' +
+      '<thead><tr>' +
+      '<th class="sortable" data-sort="date" aria-sort="' + ariaSort('expenses', 'date') + '">Дата ' + sortMark('expenses', 'date') + '</th>' +
+      '<th class="sortable" data-sort="category" aria-sort="' + ariaSort('expenses', 'category') + '">Категория ' + sortMark('expenses', 'category') + '</th>' +
+      '<th>Комментарий</th>' +
+      '<th class="sortable" data-sort="method" aria-sort="' + ariaSort('expenses', 'method') + '">Оплата ' + sortMark('expenses', 'method') + '</th>' +
+      '<th class="sortable num" data-sort="amount" aria-sort="' + ariaSort('expenses', 'amount') + '">Сумма ' + sortMark('expenses', 'amount') + '</th>' +
+      '<th class="actions-col"><span class="sr-only">Действия</span></th>' +
+      '</tr></thead><tbody>' +
+      list.map(function (item) {
+        return '<tr>' +
+          '<td class="nowrap">' + fdate(item.date) + '</td>' +
+          '<td>' + WC.lifeCategoryBadge(item.category) + '</td>' +
+          '<td>' + (item.note ? '<div class="cell-main cell-note" title="' + esc(item.note) + '">' + esc(item.note) + '</div>' : '<span class="muted">—</span>') + '</td>' +
+          '<td>' + WC.methodBadge(item.method) + '</td>' +
+          '<td class="num"><b>' + money(item.amount) + '</b></td>' +
+          '<td class="actions-col"><div class="row-actions">' +
+          '<button type="button" class="icon-btn icon-btn-sm" data-action="edit-expense" data-id="' + esc(item.id) + '" title="Изменить">' + icon('edit') + '</button>' +
+          '<button type="button" class="icon-btn icon-btn-sm danger" data-action="delete-expense" data-id="' + esc(item.id) + '" title="Удалить">' + icon('trash') + '</button>' +
+          '</div></td>' +
+          '</tr>';
+      }).join('') +
+      '</tbody></table></div></section>';
+  }
+
+  function renderExpenses() {
+    const filters = App.expenseFilters;
+    const activeFilters = Boolean(filters.search || filters.category || filters.method);
+
+    return '<div class="toolbar card">' +
+      '<label class="search-field">' + icon('search') +
+      '<input type="search" data-expense-filter="search" id="expenseSearch" placeholder="Поиск по категории, комментарию, сумме…" value="' + esc(filters.search) + '" autocomplete="off">' +
+      '</label>' +
+      '<select class="filter-select" data-expense-filter="category" aria-label="Категория расхода">' +
+      '<option value="">Все категории</option>' +
+      Store.LIFE_CATEGORY_ORDER.map(function (key) {
+        return '<option value="' + key + '"' + (filters.category === key ? ' selected' : '') + '>' + esc(Store.LIFE_CATEGORIES[key].label) + '</option>';
+      }).join('') + '</select>' +
+      '<select class="filter-select" data-expense-filter="method" aria-label="Способ оплаты">' +
+      '<option value="">Любой способ</option>' +
+      '<option value="cash"' + (filters.method === 'cash' ? ' selected' : '') + '>Наличные</option>' +
+      '<option value="bank"' + (filters.method === 'bank' ? ' selected' : '') + '>Безналичные</option>' +
+      '</select>' +
+      '<button type="button" class="btn btn-ghost btn-sm' + (activeFilters ? '' : ' is-muted') + '" data-action="reset-expense-filters"' + (activeFilters ? '' : ' disabled') + '>' + icon('refresh') + 'Сбросить</button>' +
+      '</div>' +
+      '<div id="expensesResults">' + expenseTableHtml(filteredExpenses()) + '</div>';
+  }
+
+  function renderExpensesResults() {
+    const container = document.getElementById('expensesResults');
+    if (container) container.innerHTML = expenseTableHtml(filteredExpenses());
+    const filters = App.expenseFilters;
+    syncResetButton('reset-expense-filters', Boolean(filters.search || filters.category || filters.method));
+  }
+
+  /* ============================================================
+     ДОЛГИ
+     ============================================================ */
+
+  function filteredDebts() {
+    const status = App.debtStatusFilter;
+    return Store.state.debts.filter(function (debt) {
+      if (status === 'all') return true;
+      return Store.debtStatus(debt).code === status;
+    }).slice().sort(function (a, b) {
+      const left = Store.debtRemaining(a);
+      const right = Store.debtRemaining(b);
+      if ((left > 0) !== (right > 0)) return left > 0 ? -1 : 1;
+      return right - left;
+    });
+  }
+
+  function debtCardHtml(debt) {
+    const remaining = Store.debtRemaining(debt);
+    const paid = Store.debtPaid(debt);
+    const progress = Store.debtProgress(debt);
+    const next = Store.debtNextPayment(debt);
+    const status = Store.debtStatus(debt);
+
+    return '<article class="card debt-card debt-' + esc(status.code) + '">' +
+      '<header class="debt-head">' +
+      '<div><h2>' + esc(debt.title) + '</h2>' +
+      '<p>' + esc(debt.lender || 'Кредитор не указан') + '</p></div>' +
+      '<div class="debt-badges">' + WC.debtTypeBadge(debt.type) + WC.debtStatusBadge(debt) + '</div>' +
+      '</header>' +
+      '<div class="debt-progress-block">' +
+      '<div class="debt-progress-top"><span>Погашено</span><b>' + progress + '%</b></div>' +
+      '<div class="debt-progress" role="progressbar" aria-valuenow="' + progress + '" aria-valuemin="0" aria-valuemax="100"><i style="width:' + progress + '%"></i></div>' +
+      '<div class="debt-progress-foot"><span>' + money(paid) + ' из ' + money(debt.principal) + '</span><span>остаток ' + money(remaining) + '</span></div>' +
+      '</div>' +
+      '<div class="debt-stats">' +
+      '<div><span>Остаток</span><b>' + money(remaining) + '</b></div>' +
+      '<div><span>Платёж в месяц</span><b>' + money(debt.monthlyPayment) + '</b></div>' +
+      '<div><span>Ставка</span><b>' + (debt.rate ? debt.rate + '%' : '—') + '</b></div>' +
+      '<div><span>Следующий платёж</span><b>' + (next ? fdate(next) : '—') + '</b></div>' +
+      '</div>' +
+      (debt.dueDay ? '<div class="debt-meta">' + icon('calendar') + 'Платёж до ' + debt.dueDay + ' числа каждого месяца' +
+        (debt.endDate ? ' · до ' + fdate(debt.endDate) : '') + '</div>' : '') +
+      (debt.note ? '<p class="debt-note">' + esc(debt.note) + '</p>' : '') +
+      '<footer class="debt-actions">' +
+      '<button type="button" class="btn btn-ghost btn-sm" data-action="open-debt-payments" data-id="' + esc(debt.id) + '">' + icon('credit-card') + 'Платежи · ' + debt.payments.length + '</button>' +
+      '<div class="row-actions">' +
+      '<button type="button" class="icon-btn icon-btn-sm" data-action="edit-debt" data-id="' + esc(debt.id) + '" title="Изменить">' + icon('edit') + '</button>' +
+      '<button type="button" class="icon-btn icon-btn-sm danger" data-action="delete-debt" data-id="' + esc(debt.id) + '" title="Удалить">' + icon('trash') + '</button>' +
+      '</div></footer>' +
+      '</article>';
+  }
+
+  function renderDebts() {
+    const debts = Store.state.debts;
+    if (!debts.length) {
+      return emptyState({
+        icon: 'credit-card',
+        title: 'Пока нет долгов',
+        text: 'Добавьте кредит, рассрочку, ипотеку или другой долг: сумму, платёж и дату. Приложение посчитает остаток и покажет прогресс.',
+        action: { action: 'add-debt', label: 'Добавить долг', icon: 'plus' }
+      });
+    }
+
+    const remaining = Store.debtsRemainingTotal();
+    const monthly = Store.debtsMonthlyTotal();
+    const active = debts.filter(function (debt) { return Store.debtStatus(debt).code === 'active' || Store.debtStatus(debt).code === 'overdue'; }).length;
+    const paid = debts.filter(function (debt) { return Store.debtStatus(debt).code === 'paid'; }).length;
+    const overdue = debts.filter(function (debt) { return Store.debtStatus(debt).code === 'overdue'; }).length;
+    const list = filteredDebts();
+
+    const statuses = [
+      { key: 'all', label: 'Все', count: debts.length },
+      { key: 'active', label: 'Активные', count: active },
+      { key: 'overdue', label: 'Просроченные', count: overdue },
+      { key: 'paid', label: 'Погашенные', count: paid }
+    ];
+
+    return '<div class="summary-bar">' +
+      '<div class="summary-chip"><span class="muted">Остаток по всем долгам</span><b>' + money(remaining) + '</b></div>' +
+      '<div class="summary-chip"><span class="muted">Платежи в месяц</span><b>' + money(monthly) + '</b></div>' +
+      '<div class="summary-chip"><span class="muted">Активных</span><b>' + active + '</b></div>' +
+      '<div class="summary-chip"><span class="muted">Погашено</span><b>' + paid + '</b></div>' +
+      '</div>' +
+      '<div class="debt-filters" role="group" aria-label="Фильтр по статусу">' +
+      statuses.map(function (item) {
+        return '<button type="button" class="filter-chip' + (App.debtStatusFilter === item.key ? ' is-active' : '') + '" data-action="filter-debts" data-status="' + item.key + '">' +
+          esc(item.label) + ' <span>' + item.count + '</span></button>';
+      }).join('') +
+      '</div>' +
+      (list.length
+        ? '<div class="debt-grid">' + list.map(debtCardHtml).join('') + '</div>'
+        : emptyState({
+          icon: 'credit-card',
+          title: 'Долгов с таким статусом нет',
+          text: 'Выберите другой фильтр, чтобы увидеть остальные обязательства.',
+          action: { action: 'filter-debts', label: 'Показать все', icon: 'refresh' }
+        }));
+  }
+
+  /* ============================================================
+     АНАЛИЗ И РЕКОМЕНДАЦИИ
+     ============================================================ */
+
+  function percent(value) {
+    if (!Number.isFinite(value)) return '0%';
+    return value.toFixed(1).replace('.', ',') + '%';
+  }
+
+  function analysisMonths(range) {
+    let months = Store.monthsInRange(range.from, range.to);
+    if (!months.length) {
+      const dates = [];
+      Store.state.incomes.forEach(function (income) { dates.push(income.date); });
+      Store.state.expenses.forEach(function (expense) { dates.push(expense.date); });
+      Store.state.debts.forEach(function (debt) {
+        (debt.payments || []).forEach(function (payment) { dates.push(payment.date); });
+      });
+      dates.sort();
+      const start = range.from || dates[0] || Store.todayISO();
+      const end = range.to || dates[dates.length - 1] || Store.todayISO();
+      months = Store.monthsInRange(start, end);
+    }
+    if (months.length > 12) months = months.slice(-12);
+    return months;
+  }
+
+  function analysisData() {
+    const range = getRange();
+    const incomeRecords = Store.incomeRecords(Store.incomesInRange(range.from, range.to));
+    const incomeTotal = sum(incomeRecords);
+    const expenses = Store.expensesInRange(range.from, range.to);
+    const expensesTotal = sum(expenses);
+    const categories = Store.expenseCategoriesTotal(expenses);
+    const paymentList = [];
+    Store.state.debts.forEach(function (debt) {
+      Store.debtPaymentsInRange(debt, range.from, range.to).forEach(function (payment) {
+        paymentList.push({ debt: debt, payment: payment });
+      });
+    });
+    const debtPayments = paymentList.reduce(function (total, item) { return total + item.payment.amount; }, 0);
+    const months = analysisMonths(range);
+    const incomeMonths = months.filter(function (month) {
+      return incomeRecords.some(function (income) { return income.date.slice(0, 7) === month.key; });
+    }).length;
+    const monthCount = Math.max(1, incomeMonths || months.length);
+    const monthlyIncome = incomeTotal / monthCount;
+    const monthlyExpenses = expensesTotal / monthCount;
+    const debtsMonthly = Store.debtsMonthlyTotal();
+    const freeCash = incomeTotal - expensesTotal - debtPayments;
+    const savingsRate = incomeTotal > 0 ? (freeCash / incomeTotal) * 100 : 0;
+    const needs = categories.filter(function (item) { return item.group === 'needs'; }).reduce(function (total, item) { return total + item.value; }, 0);
+    const wants = categories.filter(function (item) { return item.group === 'wants'; }).reduce(function (total, item) { return total + item.value; }, 0);
+    const needsShare = incomeTotal > 0 ? (needs / incomeTotal) * 100 : 0;
+    const wantsShare = incomeTotal > 0 ? (wants / incomeTotal) * 100 : 0;
+    const debtLoad = monthlyIncome > 0 ? (debtsMonthly / monthlyIncome) * 100 : (debtsMonthly > 0 ? 100 : 0);
+    const largest = categories[0] || null;
+    const overdueTrips = Store.tripsInRange(range.from, range.to).filter(function (trip) {
+      return Store.tripBalance(trip) < 0;
+    });
+    const tripOverspend = overdueTrips.reduce(function (total, trip) { return total + Math.abs(Store.tripBalance(trip)); }, 0);
+
+    return {
+      range: range,
+      incomeTotal: incomeTotal,
+      expenses: expenses,
+      expensesTotal: expensesTotal,
+      categories: categories,
+      paymentList: paymentList,
+      debtPayments: debtPayments,
+      months: months,
+      monthCount: monthCount,
+      monthlyIncome: monthlyIncome,
+      monthlyExpenses: monthlyExpenses,
+      debtsMonthly: debtsMonthly,
+      freeCash: freeCash,
+      savingsRate: savingsRate,
+      needs: needs,
+      wants: wants,
+      needsShare: needsShare,
+      wantsShare: wantsShare,
+      debtLoad: debtLoad,
+      largest: largest,
+      tripOverspend: tripOverspend
+    };
+  }
+
+  function recommendationList(data) {
+    const list = [];
+    if (!data.incomeTotal && !data.expensesTotal && !data.debtsMonthly) {
+      list.push({ tone: 'info', title: 'Недостаточно данных для анализа', text: 'Добавьте доходы и ежедневные расходы за период — после этого появятся расчёты и персональные рекомендации.' });
+      return list;
+    }
+    if (data.freeCash < 0) {
+      list.push({ tone: 'bad', title: 'Дефицит бюджета: ' + money(Math.abs(data.freeCash)), text: 'Расходы и платежи по долгам превышают доходы. Сократите необязательные траты или увеличьте доход, чтобы не уходить в новые долги.' });
+    } else {
+      list.push({ tone: 'good', title: 'Бюджет с профицитом: ' + money(data.freeCash), text: 'После расходов и платежей остаётся свободный остаток. Направьте часть на резервный фонд и досрочное погашение долгов.' });
+    }
+
+    if (data.incomeTotal > 0) {
+      if (data.savingsRate >= 20) {
+        list.push({ tone: 'good', title: 'Норма сбережений ' + percent(data.savingsRate), text: 'Вы сохраняете не менее 20% дохода — это устойчивая финансовая привычка.' });
+      } else if (data.savingsRate >= 10) {
+        list.push({ tone: 'warn', title: 'Норма сбережений ' + percent(data.savingsRate), text: 'Целевой ориентир — 20%. Попробуйте автоматически откладывать часть дохода в день выплаты.' });
+      } else {
+        list.push({ tone: 'warn', title: 'Низкая норма сбережений: ' + percent(Math.max(0, data.savingsRate)), text: 'На сбережения уходит менее 10% дохода. Проверьте подписки, кафе и импульсивные покупки.' });
+      }
+    }
+
+    if (data.debtLoad > 40) {
+      list.push({ tone: 'bad', title: 'Высокая долговая нагрузка: ' + percent(data.debtLoad), text: 'Платежи по долгам превышают 40% среднемесячного дохода. Рассмотрите рефинансирование или откажитесь от новых кредитов.' });
+    } else if (data.debtLoad > 30) {
+      list.push({ tone: 'warn', title: 'Долговая нагрузка ' + percent(data.debtLoad), text: 'Комфортный уровень — до 30% дохода. Старайтесь не брать новые обязательства, пока нагрузка не снизится.' });
+    } else if (data.debtsMonthly > 0) {
+      list.push({ tone: 'good', title: 'Долговая нагрузка ' + percent(data.debtLoad), text: 'Платежи по долгам занимают безопасную долю дохода. Продолжайте по графику и по возможности гасите досрочно.' });
+    } else {
+      list.push({ tone: 'good', title: 'Долгов нет', text: 'Обязательных платежей по кредитам и рассрочкам нет — это хорошая база для накоплений.' });
+    }
+
+    if (data.largest && data.expensesTotal > 0 && data.largest.value / data.expensesTotal > 0.3) {
+      list.push({ tone: 'warn', title: 'Крупнейшая категория: ' + data.largest.label, text: 'На неё приходится ' + share(data.largest.value, data.expensesTotal) + ' всех ежедневных расходов. Проверьте, есть ли возможность сократить траты без потери комфорта.' });
+    }
+
+    if (data.incomeTotal > 0 && data.wantsShare > 30) {
+      list.push({ tone: 'warn', title: 'Дискреционные траты ' + percent(data.wantsShare), text: 'Кафе, покупки и развлечения превышают рекомендованные 30% дохода. Небольшое сокращение освободит заметную сумму за месяц.' });
+    }
+
+    if (data.incomeTotal > 0) {
+      const needsOk = data.needsShare <= 50;
+      const wantsOk = data.wantsShare <= 30;
+      const savingsOk = data.savingsRate >= 20;
+      if (needsOk && wantsOk && savingsOk) {
+        list.push({ tone: 'good', title: 'Правило 50/30/20 соблюдается', text: 'Обязательные траты, желания и сбережения находятся в рекомендованных пропорциях.' });
+      } else {
+        const parts = [];
+        if (!needsOk) parts.push('обязательные траты выше 50%');
+        if (!wantsOk) parts.push('желания выше 30%');
+        if (!savingsOk) parts.push('сбережения ниже 20%');
+        list.push({ tone: 'info', title: 'Проверьте правило 50/30/20', text: 'Отклонения: ' + parts.join(', ') + '. Перераспределите бюджет в пользу сбережений.' });
+      }
+    }
+
+    if (data.tripOverspend > 0) {
+      list.push({ tone: 'info', title: 'Перерасход по командировкам: ' + money(data.tripOverspend), text: 'По части поездок расходы превысили аванс. Проверьте авансовые отчёты и при необходимости запросите возмещение.' });
+    }
+
+    return list;
+  }
+
+  function renderAnalysis() {
+    const data = analysisData();
+    const recommendations = recommendationList(data);
+    const hasBudget = data.incomeTotal > 0 || data.expensesTotal > 0 || data.debtsMonthly > 0;
+    const debtRatio = data.debtsMonthly > 0 ? Math.min(100, data.debtLoad) : 0;
+    const savingsTone = data.freeCash >= 0 ? 'green' : 'rose';
+    const budgetRows = [
+      { key: 'needs', label: 'Обязательные', hint: 'до 50%', actual: data.needsShare, target: 50, tone: 'blue', value: data.needs },
+      { key: 'wants', label: 'Желания', hint: 'до 30%', actual: data.wantsShare, target: 30, tone: 'amber', value: data.wants },
+      { key: 'savings', label: 'Сбережения', hint: 'от 20%', actual: data.savingsRate, target: 20, tone: 'green', value: Math.max(0, data.freeCash) }
+    ];
+
+    return '<div class="analysis">' +
+      '<div class="kpi-grid">' +
+      kpiCard('Доход за период', money(data.incomeTotal), 'wallet', 'blue', '<span class="muted">без суточных</span>') +
+      kpiCard('Ежедневные расходы', money(data.expensesTotal), 'receipt', 'rose', '<span class="muted">' + share(data.expensesTotal, data.incomeTotal) + ' от дохода</span>') +
+      kpiCard('Платежи по долгам', money(data.debtPayments), 'credit-card', 'violet', '<span class="muted">' + money(data.debtsMonthly) + ' / мес. по графику</span>') +
+      kpiCard('Свободный остаток', money(data.freeCash), 'chart', savingsTone, '<span class="muted">' + (data.incomeTotal ? percent(data.savingsRate) + ' от дохода' : 'нет доходов за период') + '</span>') +
+      kpiCard('Долговая нагрузка', data.debtsMonthly > 0 ? percent(data.debtLoad) : '0%', 'alert', debtRatio > 40 ? 'rose' : debtRatio > 30 ? 'amber' : 'green', '<span class="muted">' + money(Store.debtsRemainingTotal()) + ' остаток</span>') +
+      '</div>' +
+
+      '<div class="analysis-grid">' +
+      '<section class="card span-2">' +
+      '<header class="card-head"><div><h2>Доходы и расходы по месяцам</h2><p>Сравнение поступлений, ежедневных трат и платежей по долгам</p></div>' +
+      '<div class="legend"><span class="legend-item"><i class="legend-dot bank"></i>Доход</span><span class="legend-item"><i class="legend-dot expense"></i>Расходы</span><span class="legend-item"><i class="legend-dot debt"></i>Долги</span></div></header>' +
+      '<div class="chart" id="analysisMonths"></div>' +
+      '</section>' +
+
+      '<section class="card">' +
+      '<header class="card-head"><div><h2>Структура расходов</h2><p>Ежедневные траты по категориям</p></div></header>' +
+      '<div class="donut-layout"><div class="chart donut-chart" id="analysisExpenseDonut"></div><div class="legend legend-vertical" id="analysisExpenseLegend"></div></div>' +
+      '</section>' +
+
+      '<section class="card span-2">' +
+      '<header class="card-head"><div><h2>Долги</h2><p>Остаток по каждому обязательству</p></div>' +
+      '<button type="button" class="btn btn-ghost btn-sm" data-action="go-debts">Все долги' + icon('arrow-right') + '</button></header>' +
+      '<div id="analysisDebts"></div>' +
+      '</section>' +
+
+      '<section class="card">' +
+      '<header class="card-head"><div><h2>Правило 50/30/20</h2><p>Ориентиры распределения дохода</p></div></header>' +
+      (data.incomeTotal > 0
+        ? '<div class="budget-rules">' + budgetRows.map(function (row) {
+          const width = Math.min(100, Math.max(0, row.actual));
+          const targetMark = Math.min(100, row.target);
+          return '<div class="budget-rule tone-' + row.tone + '">' +
+            '<div class="budget-rule-head"><span>' + esc(row.label) + ' <small>' + esc(row.hint) + '</small></span><b>' + percent(row.actual) + '</b></div>' +
+            '<div class="budget-bar"><i style="width:' + width + '%"></i><span class="budget-mark" style="left:' + targetMark + '%"></span></div>' +
+            '<div class="budget-rule-foot"><span>' + money(row.value) + '</span><span>цель ' + row.target + '%</span></div>' +
+            '</div>';
+        }).join('') + '</div>'
+        : '<p class="advance-empty">Нужны доходы за период, чтобы рассчитать пропорции.</p>') +
+      '</section>' +
+
+      '<section class="card span-3 recommendations-card">' +
+      '<header class="card-head"><div><h2>Рекомендации</h2><p>Что можно улучшить в личном бюджете</p></div>' +
+      '<span class="report-stamp">' + esc(data.range.label) + '</span></header>' +
+      (hasBudget
+        ? '<div class="recommendations">' + recommendations.map(function (item) {
+          return '<article class="recommendation rec-' + item.tone + '">' +
+            '<span class="rec-icon">' + icon(item.tone === 'bad' ? 'alert' : item.tone === 'good' ? 'check' : 'lightbulb') + '</span>' +
+            '<div><h3>' + esc(item.title) + '</h3><p>' + esc(item.text) + '</p></div>' +
+            '</article>';
+        }).join('') + '</div>'
+        : '<p class="advance-empty">Добавьте доходы и расходы за период — рекомендации появятся автоматически.</p>') +
+      '</section>' +
+      '</div>' +
+
+      '<p class="analysis-footnote">' + icon('info') + ' Расчёт личного бюджета не включает расходы командировок: они возмещаются работодателем. Суточные также не считаются доходом.</p>' +
+      '</div>';
+  }
+
+  function mountAnalysis() {
+    const data = analysisData();
+    const byMonth = {};
+    data.months.forEach(function (month) {
+      byMonth[month.key] = { income: 0, expense: 0, debt: 0 };
+    });
+    Store.incomeRecords(Store.incomesInRange(data.range.from, data.range.to)).forEach(function (income) {
+      const key = income.date.slice(0, 7);
+      if (byMonth[key]) byMonth[key].income += income.amount;
+    });
+    data.expenses.forEach(function (expense) {
+      const key = expense.date.slice(0, 7);
+      if (byMonth[key]) byMonth[key].expense += expense.amount;
+    });
+    data.paymentList.forEach(function (item) {
+      const key = item.payment.date.slice(0, 7);
+      if (byMonth[key]) byMonth[key].debt += item.payment.amount;
+    });
+
+    Charts.groupedBars(document.getElementById('analysisMonths'), {
+      months: data.months.map(function (month) {
+        return {
+          label: month.label,
+          full: month.full,
+          values: [byMonth[month.key].income, byMonth[month.key].expense, byMonth[month.key].debt]
+        };
+      }),
+      series: [
+        { label: 'Доход', className: 'chart-bar-bank' },
+        { label: 'Расходы', className: 'chart-bar-expense' },
+        { label: 'Долги', className: 'chart-bar-debt' }
+      ],
+      formatValue: function (value) { return Store.compact(value); },
+      emptyText: 'Нет данных за период'
+    });
+
+    const categories = data.categories;
+    const total = data.expensesTotal;
+    Charts.donut(document.getElementById('analysisExpenseDonut'), {
+      items: categories.map(function (item) {
+        return { label: item.label, value: item.value, color: item.color };
+      }),
+      centerValue: money(total),
+      centerLabel: 'расходы',
+      emptyText: 'Нет расходов за период'
+    });
+    const legend = document.getElementById('analysisExpenseLegend');
+    if (legend) {
+      legend.innerHTML = categories.length
+        ? categories.slice(0, 8).map(function (item) {
+          return '<div class="legend-item legend-row"><i class="legend-dot" style="background:' + item.color + '"></i>' +
+            '<span class="legend-name">' + esc(item.label) + '</span>' +
+            '<b>' + share(item.value, total) + '</b></div>';
+        }).join('')
+        : '<span class="muted">Нет данных</span>';
+    }
+
+    const activeDebts = Store.state.debts.filter(function (debt) { return Store.debtRemaining(debt) > 0; });
+    Charts.hbars(document.getElementById('analysisDebts'), {
+      items: activeDebts.slice().sort(function (a, b) { return Store.debtRemaining(b) - Store.debtRemaining(a); }).slice(0, 6).map(function (debt) {
+        return {
+          label: debt.title,
+          value: Store.debtRemaining(debt),
+          color: (Store.DEBT_TYPES[debt.type] || Store.DEBT_TYPES.other).color,
+          hint: money(debt.monthlyPayment) + ' / мес.'
+        };
+      }),
+      formatValue: money,
+      emptyText: 'Активных долгов нет'
+    });
+  }
+
+  /* ============================================================
      ОТЧЁТЫ
      ============================================================ */
 
@@ -716,6 +1261,15 @@
     const incomeTotal = cash + bank;
     const days = trips.reduce(function (total, trip) { return total + Store.tripDaysWithin(trip, range.from, range.to); }, 0);
     const perDiem = trips.reduce(function (total, trip) { return total + Store.tripPerDiem(trip, range.from, range.to); }, 0);
+    const dailyExpenses = Store.expensesInRange(range.from, range.to);
+    const dailyExpensesTotal = sum(dailyExpenses);
+    const expenseCategoryRows = Store.expenseCategoriesTotal(dailyExpenses);
+    const debtPaymentTotal = Store.state.debts.reduce(function (total, debt) {
+      return total + Store.debtPaymentsInRange(debt, range.from, range.to).reduce(function (sumPayments, payment) {
+        return sumPayments + payment.amount;
+      }, 0);
+    }, 0);
+    const freeCash = incomeTotal - dailyExpensesTotal - debtPaymentTotal;
     const months = reportMonths(range, incomes, trips);
 
     const monthRows = months.map(function (month) {
@@ -808,7 +1362,8 @@
     return '<div class="report-actions">' +
       '<button type="button" class="btn btn-ghost btn-sm" data-action="export-incomes-csv" data-scope="period">' + icon('download') + 'CSV доходов</button>' +
       '<button type="button" class="btn btn-ghost btn-sm" data-action="export-trips-csv" data-scope="period">' + icon('download') + 'CSV командировок</button>' +
-      '<button type="button" class="btn btn-ghost btn-sm" data-action="export-expenses-csv" data-scope="period">' + icon('download') + 'CSV расходов</button>' +
+      '<button type="button" class="btn btn-ghost btn-sm" data-action="export-daily-expenses-csv" data-scope="period">' + icon('download') + 'CSV расходов</button>' +
+      '<button type="button" class="btn btn-ghost btn-sm" data-action="export-debts-csv">' + icon('download') + 'CSV долгов</button>' +
       '<button type="button" class="btn btn-ghost btn-sm" data-action="print-report">' + icon('printer') + 'Печать</button>' +
       '</div>' +
 
@@ -816,6 +1371,9 @@
       kpiCard('Доход', money(incomeTotal), 'wallet', 'blue', '<span class="muted">' + incomeRecords.length + ' ' + plural(incomeRecords.length, ['поступление', 'поступления', 'поступлений']) + ' · без суточных</span>') +
       kpiCard('Наличные', money(cash), 'cash', 'green', '<span class="muted">' + share(cash, incomeTotal) + '</span>') +
       kpiCard('Безналичные', money(bank), 'card', 'cyan', '<span class="muted">' + share(bank, incomeTotal) + '</span>') +
+      kpiCard('Ежедневные расходы', money(dailyExpensesTotal), 'receipt', 'rose', '<span class="muted">' + dailyExpenses.length + ' ' + plural(dailyExpenses.length, ['трата', 'траты', 'трат']) + '</span>') +
+      kpiCard('Платежи по долгам', money(debtPaymentTotal), 'credit-card', 'violet', '<span class="muted">за период</span>') +
+      kpiCard('Свободный остаток', money(freeCash), 'chart', freeCash >= 0 ? 'green' : 'rose', '<span class="muted">доход − расходы − долги</span>') +
       kpiCard('Суток', String(days), 'plane', 'violet', '<span class="muted">' + trips.length + ' ' + plural(trips.length, ['поездка', 'поездки', 'поездок']) + '</span>') +
       kpiCard('Суточные', money(perDiem), 'calendar', 'amber', '<span class="muted">за период</span>') +
       '</div>' +
@@ -860,6 +1418,35 @@
       (destinationRows.length ? destinationRows.map(function (row) {
         return '<tr><td>' + esc(row.label) + '</td><td class="num">' + row.count + '</td><td class="num">' + row.days + '</td><td class="num">' + money(row.perDiem) + '</td></tr>';
       }).join('') : '<tr><td colspan="4" class="muted">Нет данных</td></tr>') +
+      '</tbody></table></div>' +
+      '</section>' +
+      '</div>' +
+
+      '<div class="report-grid">' +
+      '<section class="card report-card">' +
+      '<header class="card-head"><div><h2>Ежедневные расходы</h2><p>Личный бюджет по категориям · ' + esc(range.label) + '</p></div></header>' +
+      '<div class="table-wrap"><table class="data-table report-table"><thead><tr><th>Категория</th><th class="num">Записей</th><th class="num">Сумма</th><th class="num">Доля</th></tr></thead><tbody>' +
+      (expenseCategoryRows.length
+        ? expenseCategoryRows.map(function (row) {
+          const count = dailyExpenses.filter(function (item) { return (Store.LIFE_CATEGORIES[item.category] ? item.category : 'other') === row.key; }).length;
+          return '<tr><td><i class="legend-dot" style="background:' + row.color + '"></i> ' + esc(row.label) + '</td><td class="num">' + count + '</td><td class="num">' + money(row.value) + '</td><td class="num">' + share(row.value, dailyExpensesTotal) + '</td></tr>';
+        }).join('') + '<tr class="total-row"><td>Итого</td><td class="num">' + dailyExpenses.length + '</td><td class="num">' + money(dailyExpensesTotal) + '</td><td class="num">100%</td></tr>'
+        : '<tr><td colspan="4" class="muted">Нет расходов за период</td></tr>') +
+      '</tbody></table></div>' +
+      '</section>' +
+      '<section class="card report-card">' +
+      '<header class="card-head"><div><h2>Долги и платежи</h2><p>Обязательства и внесённые платежи за период</p></div></header>' +
+      '<div class="table-wrap"><table class="data-table report-table"><thead><tr><th>Долг</th><th>Тип</th><th class="num">Остаток</th><th class="num">Платёж/мес</th><th class="num">За период</th></tr></thead><tbody>' +
+      (Store.state.debts.length
+        ? Store.state.debts.slice().sort(function (a, b) { return Store.debtRemaining(b) - Store.debtRemaining(a); }).map(function (debt) {
+          const paidInRange = Store.debtPaymentsInRange(debt, range.from, range.to).reduce(function (total, payment) { return total + payment.amount; }, 0);
+          return '<tr><td><div class="cell-main">' + esc(debt.title) + '</div><div class="cell-sub">' + esc(debt.lender || 'Кредитор не указан') + '</div></td>' +
+            '<td>' + WC.debtTypeBadge(debt.type) + '</td>' +
+            '<td class="num">' + money(Store.debtRemaining(debt)) + '</td>' +
+            '<td class="num">' + money(debt.monthlyPayment) + '</td>' +
+            '<td class="num">' + money(paidInRange) + '</td></tr>';
+        }).join('') + '<tr class="total-row"><td colspan="2">Итого</td><td class="num">' + money(Store.debtsRemainingTotal()) + '</td><td class="num">' + money(Store.debtsMonthlyTotal()) + '</td><td class="num">' + money(debtPaymentTotal) + '</td></tr>'
+        : '<tr><td colspan="5" class="muted">Долгов нет</td></tr>') +
       '</tbody></table></div>' +
       '</section>' +
       '</div>' +
@@ -1027,6 +1614,10 @@
       App.tripFilters.search = event.target.value;
       renderTripsResults();
     }
+    if (event.target.matches('[data-expense-filter="search"]')) {
+      App.expenseFilters.search = event.target.value;
+      renderExpensesResults();
+    }
   });
 
   document.addEventListener('change', function (event) {
@@ -1039,6 +1630,11 @@
     if (tripFilter && tripFilter !== 'search') {
       App.tripFilters[tripFilter] = event.target.value;
       renderTripsResults();
+    }
+    const expenseFilter = event.target.getAttribute('data-expense-filter');
+    if (expenseFilter && expenseFilter !== 'search') {
+      App.expenseFilters[expenseFilter] = event.target.value;
+      renderExpensesResults();
     }
   });
 
@@ -1059,6 +1655,7 @@
     }
     if (tableName === 'incomes') renderIncomesResults();
     if (tableName === 'trips') renderTripsResults();
+    if (tableName === 'expenses') renderExpensesResults();
   });
 
   WC.registerAction('reset-income-filters', function () {
@@ -1068,6 +1665,16 @@
 
   WC.registerAction('reset-trip-filters', function () {
     App.tripFilters = { search: '', object: '' };
+    WC.renderView();
+  });
+
+  WC.registerAction('reset-expense-filters', function () {
+    App.expenseFilters = { search: '', category: '', method: '' };
+    WC.renderView();
+  });
+
+  WC.registerAction('filter-debts', function (element) {
+    App.debtStatusFilter = element.getAttribute('data-status') || 'all';
     WC.renderView();
   });
 
@@ -1081,6 +1688,7 @@
 
   WC.registerAction('go-incomes', function () { WC.go('incomes'); });
   WC.registerAction('go-trips', function () { WC.go('trips'); });
+  WC.registerAction('go-debts', function () { WC.go('debts'); });
   WC.registerAction('print-report', function () { window.print(); });
   WC.registerAction('open-trip-expenses', function (element) {
     if (typeof WC.openTripExpensesModal === 'function') {
@@ -1095,12 +1703,19 @@
 
   WC.registerView('dashboard', renderDashboard);
   WC.registerView('incomes', renderIncomes);
+  WC.registerView('expenses', renderExpenses);
+  WC.registerView('debts', renderDebts);
   WC.registerView('trips', renderTrips);
   WC.registerView('advance', renderAdvanceReport);
   WC.registerView('objects', renderObjects);
+  WC.registerView('analysis', renderAnalysis);
   WC.registerView('reports', renderReports);
 
   WC.mountDashboard = mountDashboard;
+  WC.mountExpenses = function () {
+    if (document.getElementById('expensesResults')) renderExpensesResults();
+  };
+  WC.mountAnalysis = mountAnalysis;
   WC.renderIncomesResults = renderIncomesResults;
   WC.renderTripsResults = renderTripsResults;
 })();

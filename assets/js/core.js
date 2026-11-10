@@ -13,11 +13,14 @@
   const BACKUP_KEY = 'naladchik:backup:v1';
 
   const VIEW_TITLES = {
-    dashboard: { title: 'Обзор', subtitle: 'Сводка по доходам и командировкам' },
+    dashboard: { title: 'Обзор', subtitle: 'Сводка по доходам, расходам и командировкам' },
     incomes: { title: 'Доходы', subtitle: 'Авансы, зарплата, отпускные и другие поступления' },
+    expenses: { title: 'Расходы', subtitle: 'Ежедневные личные траты вне командировок' },
+    debts: { title: 'Долги', subtitle: 'Кредиты, рассрочки и обязательные платежи' },
     trips: { title: 'Командировки', subtitle: 'Направления, сроки и суточные' },
     advance: { title: 'Авансовый отчёт', subtitle: 'Расходы командировки и расчёт с подотчётным лицом' },
     objects: { title: 'Объекты', subtitle: 'Заказчики, площадки и объёмы работ' },
+    analysis: { title: 'Анализ', subtitle: 'Личный бюджет, рекомендации и динамика' },
     reports: { title: 'Отчёты', subtitle: 'Итоги за период и выгрузки' },
     settings: { title: 'Настройки', subtitle: 'Профиль, источники и синхронизация с GitHub' }
   };
@@ -25,13 +28,15 @@
   const PRIMARY_ACTIONS = {
     dashboard: { action: 'add-income', label: 'Доход', icon: 'plus' },
     incomes: { action: 'add-income', label: 'Доход', icon: 'plus' },
+    expenses: { action: 'add-expense', label: 'Расход', icon: 'plus' },
+    debts: { action: 'add-debt', label: 'Долг', icon: 'plus' },
     trips: { action: 'add-trip', label: 'Командировка', icon: 'plus' },
     advance: { action: 'print-advance', label: 'Печать', icon: 'printer' },
     objects: { action: 'add-object', label: 'Объект', icon: 'plus' },
     reports: { action: 'print-report', label: 'Печать', icon: 'printer' }
   };
 
-  const PERIOD_VIEWS = ['dashboard', 'incomes', 'trips', 'reports'];
+  const PERIOD_VIEWS = ['dashboard', 'incomes', 'expenses', 'trips', 'analysis', 'reports'];
 
   const App = {
     view: 'dashboard',
@@ -40,9 +45,12 @@
     customFrom: '',
     customTo: '',
     incomeFilters: { search: '', type: '', method: '', source: '', object: '' },
+    expenseFilters: { search: '', category: '', method: '' },
     tripFilters: { search: '', object: '' },
+    debtStatusFilter: 'all',
     sort: {
       incomes: { key: 'date', dir: 'desc' },
+      expenses: { key: 'date', dir: 'desc' },
       trips: { key: 'startDate', dir: 'desc' }
     }
   };
@@ -134,7 +142,8 @@
   }
 
   function hasData() {
-    return Store.state.incomes.length > 0 || Store.state.trips.length > 0 || Store.state.objects.length > 0;
+    return Store.state.incomes.length > 0 || Store.state.trips.length > 0 || Store.state.objects.length > 0 ||
+      Store.state.expenses.length > 0 || Store.state.debts.length > 0;
   }
 
   function objectOptions(selectedId, emptyLabel) {
@@ -174,6 +183,21 @@
   function tripStatusBadge(status) {
     const label = Store.TRIP_STATUSES[status] || Store.TRIP_STATUSES.done;
     return '<span class="badge trip-badge trip-' + esc(status) + '">' + esc(label) + '</span>';
+  }
+
+  function lifeCategoryBadge(key) {
+    const meta = Store.LIFE_CATEGORIES[key] || Store.LIFE_CATEGORIES.other;
+    return '<span class="badge" style="color:' + meta.color + ';background:' + meta.color + '1f">' + esc(meta.label) + '</span>';
+  }
+
+  function debtTypeBadge(type) {
+    const meta = Store.DEBT_TYPES[type] || Store.DEBT_TYPES.other;
+    return '<span class="badge" style="color:' + meta.color + ';background:' + meta.color + '1f">' + esc(meta.label) + '</span>';
+  }
+
+  function debtStatusBadge(debt) {
+    const meta = Store.debtStatus(debt);
+    return '<span class="badge debt-status debt-status-' + esc(meta.code) + '">' + esc(meta.label) + '</span>';
   }
 
   function syncStatusMeta(stateName) {
@@ -472,7 +496,7 @@
           ? trip.destination + ' · ' + fdate(trip.startDate) + ' — ' + fdate(trip.endDate)
           : meta.subtitle;
       } else {
-        subtitle.textContent = (App.view === 'dashboard' || App.view === 'reports')
+        subtitle.textContent = (App.view === 'dashboard' || App.view === 'reports' || App.view === 'expenses' || App.view === 'analysis')
           ? range.label + ' · ' + meta.subtitle.toLowerCase()
           : meta.subtitle;
       }
@@ -526,6 +550,8 @@
     if (!renderer) return;
     container.innerHTML = renderer();
     if (App.view === 'dashboard' && window.WC.mountDashboard) window.WC.mountDashboard();
+    if (App.view === 'expenses' && window.WC.mountExpenses) window.WC.mountExpenses();
+    if (App.view === 'analysis' && window.WC.mountAnalysis) window.WC.mountAnalysis();
     if (App.view === 'settings' && window.WC.updateSyncStatusBox) window.WC.updateSyncStatusBox();
   }
 
@@ -789,6 +815,7 @@
 
     window.addEventListener('resize', function () {
       if (App.view === 'dashboard' && window.WC.mountDashboard) window.WC.mountDashboard();
+      if (App.view === 'analysis' && window.WC.mountAnalysis) window.WC.mountAnalysis();
     });
 
     document.addEventListener('change', function (event) {
@@ -862,6 +889,9 @@
     methodBadge: methodBadge,
     objectStatusBadge: objectStatusBadge,
     tripStatusBadge: tripStatusBadge,
+    lifeCategoryBadge: lifeCategoryBadge,
+    debtTypeBadge: debtTypeBadge,
+    debtStatusBadge: debtStatusBadge,
     syncStatusMeta: syncStatusMeta,
     applyTheme: applyTheme,
     toggleTheme: toggleTheme,

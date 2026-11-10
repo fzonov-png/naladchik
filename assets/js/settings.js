@@ -25,6 +25,8 @@
     const incomeCount = Store.incomeRecords(Store.state.incomes).length;
     const tripCount = Store.state.trips.length;
     const objectCount = Store.state.objects.length;
+    const expenseCount = Store.state.expenses.length;
+    const debtCount = Store.state.debts.length;
 
     return '<div class="settings-layout">' +
 
@@ -105,7 +107,7 @@
 
       '<section class="card settings-card settings-wide">' +
       '<header class="card-head"><div><h2>Данные</h2><p>Резервные копии, обмен и очистка</p></div>' +
-      '<span class="badge badge-muted">' + incomeCount + ' ' + WC.plural(incomeCount, ['доход', 'дохода', 'доходов']) + ' · ' + tripCount + ' ' + WC.plural(tripCount, ['командировка', 'командировки', 'командировок']) + ' · ' + objectCount + ' ' + WC.plural(objectCount, ['объект', 'объекта', 'объектов']) + '</span></header>' +
+      '<span class="badge badge-muted">' + incomeCount + ' ' + WC.plural(incomeCount, ['доход', 'дохода', 'доходов']) + ' · ' + tripCount + ' ' + WC.plural(tripCount, ['командировка', 'командировки', 'командировок']) + ' · ' + objectCount + ' ' + WC.plural(objectCount, ['объект', 'объекта', 'объектов']) + ' · ' + expenseCount + ' ' + WC.plural(expenseCount, ['расход', 'расхода', 'расходов']) + ' · ' + debtCount + ' ' + WC.plural(debtCount, ['долг', 'долга', 'долгов']) + '</span></header>' +
       '<div class="data-list">' +
       '<div class="data-row"><div class="data-main">' + icon('download') + '<div><b>Скачать резервную копию</b><span>Все данные в JSON — для хранения и переноса</span></div></div>' +
       '<button type="button" class="btn btn-ghost btn-sm" data-action="export-json">Скачать JSON</button></div>' +
@@ -115,6 +117,10 @@
       '<button type="button" class="btn btn-ghost btn-sm" data-action="export-trips-csv" data-scope="all">Скачать CSV</button></div>' +
       '<div class="data-row"><div class="data-main">' + icon('download') + '<div><b>Расходы командировок в CSV</b><span>Даты, категории, документы и суммы</span></div></div>' +
       '<button type="button" class="btn btn-ghost btn-sm" data-action="export-expenses-csv" data-scope="all">Скачать CSV</button></div>' +
+      '<div class="data-row"><div class="data-main">' + icon('download') + '<div><b>Ежедневные расходы в CSV</b><span>Личные траты по категориям и способу оплаты</span></div></div>' +
+      '<button type="button" class="btn btn-ghost btn-sm" data-action="export-daily-expenses-csv" data-scope="all">Скачать CSV</button></div>' +
+      '<div class="data-row"><div class="data-main">' + icon('download') + '<div><b>Долги в CSV</b><span>Остатки, платежи и график по обязательствам</span></div></div>' +
+      '<button type="button" class="btn btn-ghost btn-sm" data-action="export-debts-csv">Скачать CSV</button></div>' +
       '<div class="data-row"><div class="data-main">' + icon('upload') + '<div><b>Импорт из JSON</b><span>Заменит текущие данные резервной копией</span></div></div>' +
       '<button type="button" class="btn btn-ghost btn-sm" data-action="import-json">Выбрать файл</button></div>' +
       (backup
@@ -132,7 +138,7 @@
       '<section class="card settings-card settings-wide">' +
       '<header class="card-head"><div><h2>О приложении</h2><p>Локальное приложение без сервера</p></div></header>' +
       '<div class="about-grid">' +
-      '<div><span>Версия</span><b>1.2.2</b></div>' +
+      '<div><span>Версия</span><b>1.3.0</b></div>' +
       '<div><span>Хранение</span><b>localStorage + GitHub Gist</b></div>' +
       '<div><span>Формат данных</span><b>JSON</b></div>' +
       '<div><span>Валюта</span><b>' + esc(Store.CURRENCIES[settings.currency].label) + '</b></div>' +
@@ -381,6 +387,56 @@
     WC.toast('CSV с расходами сохранён');
   }
 
+  function exportDailyExpensesCsv(scope) {
+    const range = scope === 'period' ? WC.getRange() : { from: null, to: null };
+    const list = Store.expensesInRange(range.from, range.to).slice().sort(function (a, b) { return a.date.localeCompare(b.date); });
+    if (!list.length) {
+      WC.toast('Нет ежедневных расходов для выгрузки', { type: 'info' });
+      return;
+    }
+    const rows = [['Дата', 'Категория', 'Способ оплаты', 'Сумма', 'Комментарий']];
+    list.forEach(function (item) {
+      rows.push([
+        fdate(item.date),
+        Store.lifeCategoryLabel(item.category),
+        item.method === 'cash' ? 'Наличные' : 'Безналичные',
+        String(item.amount).replace('.', ','),
+        item.note || ''
+      ]);
+    });
+    const suffix = scope === 'period' ? WC.fileSuffix() : '-all';
+    WC.downloadText('naladchik-ezhednevnye-rashody' + suffix + '.csv', WC.toCsv(rows), 'text/csv;charset=utf-8');
+    WC.toast('CSV с ежедневными расходами сохранён');
+  }
+
+  function exportDebtsCsv() {
+    const list = Store.state.debts.slice().sort(function (a, b) { return Store.debtRemaining(b) - Store.debtRemaining(a); });
+    if (!list.length) {
+      WC.toast('Нет долгов для выгрузки', { type: 'info' });
+      return;
+    }
+    const rows = [['Долг', 'Кредитор', 'Тип', 'Сумма долга', 'Выплачено', 'Остаток', 'Платёж в месяц', 'Ставка, %', 'Дата начала', 'Дата окончания', 'День платежа', 'Статус', 'Комментарий']];
+    list.forEach(function (debt) {
+      rows.push([
+        debt.title,
+        debt.lender || '',
+        Store.DEBT_TYPES[debt.type].label,
+        String(debt.principal).replace('.', ','),
+        String(Store.debtPaid(debt)).replace('.', ','),
+        String(Store.debtRemaining(debt)).replace('.', ','),
+        String(debt.monthlyPayment).replace('.', ','),
+        String(debt.rate).replace('.', ','),
+        debt.startDate ? fdate(debt.startDate) : '',
+        debt.endDate ? fdate(debt.endDate) : '',
+        debt.dueDay || '',
+        Store.debtStatus(debt).label,
+        debt.note || ''
+      ]);
+    });
+    WC.downloadText('naladchik-dolgi-all.csv', WC.toCsv(rows), 'text/csv;charset=utf-8');
+    WC.toast('CSV с долгами сохранён');
+  }
+
   function handleImportFile(file) {
     if (!file) return;
     const reader = new FileReader();
@@ -547,6 +603,66 @@
       addIncome(trip.startDate, 'perDiem', Store.tripDays(trip) * trip.perDiemRate, 'cash', sourceName, trip.objectId, 'Суточные: ' + trip.destination);
     });
 
+    const expenses = [];
+    let expenseSequence = 1;
+    function addExpense(date, category, amount, method, note) {
+      expenses.push({
+        id: 'demo-expense-' + expenseSequence,
+        date: date,
+        category: category,
+        amount: amount,
+        method: method,
+        note: note || '',
+        createdAt: createdAt,
+        updatedAt: createdAt
+      });
+      expenseSequence += 1;
+    }
+
+    for (let offset = -4; offset <= 0; offset += 1) {
+      addExpense(demoDate(offset, 3), 'food', 6200 + (offset + 4) * 180, 'bank', 'Продукты на неделю');
+      addExpense(demoDate(offset, 7), 'housing', 8400, 'bank', 'ЖКХ и интернет');
+      addExpense(demoDate(offset, 9), 'transport', 3200, 'cash', 'Бензин и метро');
+      addExpense(demoDate(offset, 12), 'cafe', 2400 + (offset + 4) * 120, 'cash', 'Кафе и доставка');
+      addExpense(demoDate(offset, 16), 'health', 1800, 'bank', 'Аптека');
+      addExpense(demoDate(offset, 18), 'shopping', 4600, 'bank', 'Одежда и бытовые товары');
+      addExpense(demoDate(offset, 22), 'entertainment', 1500, 'cash', 'Кино и подписки');
+      addExpense(demoDate(offset, 24), 'family', 3000, 'bank', 'Детский сад и секции');
+    }
+
+    const debts = [
+      {
+        id: 'demo-debt-1', title: 'Автокредит', lender: 'Банк «Восток»', type: 'credit',
+        principal: 480000, monthlyPayment: 18500, rate: 16.9,
+        startDate: demoDate(-12, 15), endDate: demoDate(24, 15), dueDay: 15,
+        note: 'Досрочное погашение возможно без комиссии.',
+        payments: [-4, -3, -2, -1, 0].map(function (offset, index) {
+          return { id: 'demo-debt-1-pay-' + (index + 1), date: demoDate(offset, 15), amount: 18500, note: 'Ежемесячный платёж' };
+        }),
+        createdAt: createdAt, updatedAt: createdAt
+      },
+      {
+        id: 'demo-debt-2', title: 'Рассрочка на технику', lender: 'Магазин электроники', type: 'installment',
+        principal: 96000, monthlyPayment: 8000, rate: 0,
+        startDate: demoDate(-6, 5), endDate: demoDate(6, 5), dueDay: 5,
+        note: 'Ноутбук и монитор для работы.',
+        payments: [-4, -3, -2, -1, 0].map(function (offset, index) {
+          return { id: 'demo-debt-2-pay-' + (index + 1), date: demoDate(offset, 5), amount: 8000, note: 'Платёж по рассрочке' };
+        }),
+        createdAt: createdAt, updatedAt: createdAt
+      },
+      {
+        id: 'demo-debt-3', title: 'Ипотека', lender: 'Банк «Дом»', type: 'mortgage',
+        principal: 2400000, monthlyPayment: 32000, rate: 9.2,
+        startDate: demoDate(-24, 10), endDate: demoDate(180, 10), dueDay: 10,
+        note: 'Семейная ипотека.',
+        payments: [-4, -3, -2, -1, 0].map(function (offset, index) {
+          return { id: 'demo-debt-3-pay-' + (index + 1), date: demoDate(offset, 10), amount: 32000, note: 'Ипотечный платёж' };
+        }),
+        createdAt: createdAt, updatedAt: createdAt
+      }
+    ];
+
     return {
       version: Store.VERSION,
       updatedAt: createdAt,
@@ -554,7 +670,9 @@
       sources: sources,
       objects: objects,
       incomes: incomes,
-      trips: trips
+      trips: trips,
+      expenses: expenses,
+      debts: debts
     };
   }
 
@@ -626,6 +744,8 @@
   WC.registerAction('export-incomes-csv', function (element) { exportIncomesCsv(element.getAttribute('data-scope') || 'all'); });
   WC.registerAction('export-trips-csv', function (element) { exportTripsCsv(element.getAttribute('data-scope') || 'all'); });
   WC.registerAction('export-expenses-csv', function (element) { exportExpensesCsv(element.getAttribute('data-scope') || 'all'); });
+  WC.registerAction('export-daily-expenses-csv', function (element) { exportDailyExpensesCsv(element.getAttribute('data-scope') || 'all'); });
+  WC.registerAction('export-debts-csv', function () { exportDebtsCsv(); });
   WC.registerAction('import-json', function () {
     const input = document.getElementById('importFile');
     if (input) input.click();

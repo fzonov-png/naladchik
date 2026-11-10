@@ -174,6 +174,338 @@
     });
   }
 
+  /* ---------- ежедневный расход ---------- */
+
+  function openExpenseModal(id) {
+    const record = id ? Store.expenseById(id) : null;
+    const defaultCategory = record ? record.category : (WC.getPref('expenseCategory', 'food') || 'food');
+    const defaultMethod = record ? record.method : (WC.getPref('expenseMethod', 'cash') || 'cash');
+
+    WC.openModal(
+      '<form id="expenseForm" data-id="' + esc(record ? record.id : '') + '" novalidate>' +
+      '<header class="modal-head"><div><h2>' + (record ? 'Редактировать расход' : 'Новый ежедневный расход') + '</h2>' +
+      '<p>' + (record ? 'Измените данные траты' : 'Личные расходы вне командировок: продукты, транспорт, ЖКХ, кафе и другое') + '</p></div>' +
+      '<button type="button" class="icon-btn" data-action="close-modal" aria-label="Закрыть">' + icon('close') + '</button></header>' +
+      '<div class="modal-body"><div class="form-grid">' +
+      '<label class="field"><span>Дата</span><input class="input" type="date" name="date" required value="' + esc(record ? record.date : today) + '"></label>' +
+      '<label class="field"><span>Сумма <em>*</em></span><div class="input-with-suffix">' +
+      '<input class="input" type="number" name="amount" min="0.01" step="0.01" inputmode="decimal" placeholder="0" value="' + esc(record ? record.amount : '') + '">' +
+      '<span class="input-suffix">' + esc(Store.currencySymbol()) + '</span></div></label>' +
+      '<label class="field span-2"><span>Категория</span><select class="input" name="category">' +
+      Store.LIFE_CATEGORY_ORDER.map(function (key) {
+        return '<option value="' + key + '"' + (defaultCategory === key ? ' selected' : '') + '>' + esc(Store.LIFE_CATEGORIES[key].label) + '</option>';
+      }).join('') +
+      '</select></label>' +
+      '<div class="field span-2"><span>Способ оплаты</span><div class="segmented">' +
+      '<label class="seg"><input type="radio" name="method" value="cash"' + (defaultMethod === 'cash' ? ' checked' : '') + '><span>' + icon('cash') + 'Наличные</span></label>' +
+      '<label class="seg"><input type="radio" name="method" value="bank"' + (defaultMethod === 'bank' ? ' checked' : '') + '><span>' + icon('card') + 'Безналичные</span></label>' +
+      '</div></div>' +
+      '<label class="field span-2"><span>Комментарий</span><textarea class="input" name="note" rows="2" maxlength="1000" placeholder="Например, продукты на неделю">' + esc(record ? record.note : '') + '</textarea></label>' +
+      '</div></div>' +
+      '<footer class="modal-actions modal-actions-split">' +
+      '<div class="modal-actions-left">' +
+      (record ? '<button type="button" class="btn btn-danger-ghost btn-sm" data-action="delete-expense" data-id="' + esc(record.id) + '">' + icon('trash') + 'Удалить</button>' : '') +
+      '</div>' +
+      '<div class="modal-actions-right">' +
+      '<button type="button" class="btn btn-ghost" data-action="close-modal">Отмена</button>' +
+      '<button type="submit" class="btn btn-primary">' + (record ? 'Сохранить изменения' : 'Добавить расход') + '</button>' +
+      '</div></footer>' +
+      '</form>',
+      { size: 'md' }
+    );
+
+    const form = document.getElementById('expenseForm');
+    if (form) {
+      const amount = form.querySelector('[name="amount"]');
+      if (amount) {
+        window.setTimeout(function () {
+          if (document.activeElement && document.activeElement.tagName === 'BUTTON') amount.focus();
+        }, 80);
+      }
+    }
+  }
+
+  function handleExpenseSubmit(form) {
+    clearErrors(form);
+    const data = new FormData(form);
+    const amount = WC.parseAmount(data.get('amount'));
+    const date = String(data.get('date') || '');
+    if (!Store.isValidISO(date)) {
+      setError(form, 'date', 'Укажите корректную дату');
+      return;
+    }
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setError(form, 'amount', 'Сумма должна быть больше нуля');
+      return;
+    }
+    const id = form.getAttribute('data-id');
+    const existing = id ? Store.expenseById(id) : null;
+    Store.saveExpense({
+      id: existing ? existing.id : undefined,
+      createdAt: existing ? existing.createdAt : undefined,
+      date: date,
+      category: String(data.get('category') || 'other'),
+      amount: amount,
+      method: String(data.get('method') || 'cash'),
+      note: String(data.get('note') || '')
+    });
+    WC.setPref('expenseCategory', String(data.get('category') || 'other'));
+    WC.setPref('expenseMethod', String(data.get('method') || 'cash'));
+    WC.closeModal();
+    WC.toast(existing ? 'Расход обновлён' : 'Расход добавлен');
+  }
+
+  function deleteExpense(id) {
+    const record = Store.expenseById(id);
+    if (!record) return;
+    const snapshot = JSON.stringify(Store.state);
+    if (WC.isModalOpen()) WC.closeModal();
+    Store.deleteRecord('expenses', id);
+    WC.toast('Расход удалён', {
+      actionLabel: 'Отменить',
+      timeout: 9000,
+      onAction: function () {
+        Store.replaceState(JSON.parse(snapshot), { source: 'local' });
+        WC.toast('Расход восстановлен', { type: 'info' });
+      }
+    });
+  }
+
+  /* ---------- долг ---------- */
+
+  function openDebtModal(id) {
+    const record = id ? Store.debtById(id) : null;
+    const defaultType = record ? record.type : 'credit';
+    const defaultDueDay = record ? record.dueDay : 10;
+
+    WC.openModal(
+      '<form id="debtForm" data-id="' + esc(record ? record.id : '') + '" novalidate>' +
+      '<header class="modal-head"><div><h2>' + (record ? 'Редактировать долг' : 'Новый долг') + '</h2>' +
+      '<p>Кредит, рассрочка, ипотека или другой долг: сумма, платёж и срок</p></div>' +
+      '<button type="button" class="icon-btn" data-action="close-modal" aria-label="Закрыть">' + icon('close') + '</button></header>' +
+      '<div class="modal-body"><div class="form-grid">' +
+      '<label class="field span-2"><span>Название <em>*</em></span>' +
+      '<input class="input" type="text" name="title" maxlength="200" placeholder="Например, автокредит" value="' + esc(record ? record.title : '') + '"></label>' +
+      '<label class="field span-2"><span>Кредитор</span><input class="input" type="text" name="lender" maxlength="200" placeholder="Банк или организация" value="' + esc(record ? record.lender : '') + '"></label>' +
+      '<label class="field"><span>Тип долга</span><select class="input" name="type">' +
+      Store.DEBT_TYPE_ORDER.map(function (key) {
+        return '<option value="' + key + '"' + (defaultType === key ? ' selected' : '') + '>' + esc(Store.DEBT_TYPES[key].label) + '</option>';
+      }).join('') + '</select></label>' +
+      '<label class="field"><span>Ставка, % годовых</span><input class="input" type="number" name="rate" min="0" step="0.01" inputmode="decimal" placeholder="0" value="' + esc(record ? record.rate : '') + '"></label>' +
+      '<label class="field"><span>Сумма долга <em>*</em></span><div class="input-with-suffix">' +
+      '<input class="input" type="number" name="principal" min="0.01" step="0.01" inputmode="decimal" placeholder="0" value="' + esc(record ? record.principal : '') + '">' +
+      '<span class="input-suffix">' + esc(Store.currencySymbol()) + '</span></div></label>' +
+      '<label class="field"><span>Платёж в месяц</span><div class="input-with-suffix">' +
+      '<input class="input" type="number" name="monthlyPayment" min="0" step="0.01" inputmode="decimal" placeholder="0" value="' + esc(record ? record.monthlyPayment : '') + '">' +
+      '<span class="input-suffix">' + esc(Store.currencySymbol()) + '</span></div></label>' +
+      '<label class="field"><span>Дата начала</span><input class="input" type="date" name="startDate" value="' + esc(record ? record.startDate : today) + '"></label>' +
+      '<label class="field"><span>Дата окончания</span><input class="input" type="date" name="endDate" value="' + esc(record ? record.endDate : '') + '"></label>' +
+      '<label class="field"><span>День платежа</span><input class="input" type="number" name="dueDay" min="1" max="31" step="1" inputmode="numeric" placeholder="10" value="' + esc(record ? record.dueDay || '' : defaultDueDay) + '"></label>' +
+      '<label class="field"><span>Комментарий</span><input class="input" type="text" name="note" maxlength="2000" placeholder="Условия, реквизиты, заметки" value="' + esc(record ? record.note : '') + '"></label>' +
+      '</div></div>' +
+      '<footer class="modal-actions modal-actions-split">' +
+      '<div class="modal-actions-left">' +
+      (record ? '<button type="button" class="btn btn-danger-ghost btn-sm" data-action="delete-debt" data-id="' + esc(record.id) + '">' + icon('trash') + 'Удалить</button>' : '') +
+      '</div>' +
+      '<div class="modal-actions-right">' +
+      '<button type="button" class="btn btn-ghost" data-action="close-modal">Отмена</button>' +
+      '<button type="submit" class="btn btn-primary">' + (record ? 'Сохранить изменения' : 'Добавить долг') + '</button>' +
+      '</div></footer>' +
+      '</form>',
+      { size: 'lg' }
+    );
+
+    const form = document.getElementById('debtForm');
+    if (form) {
+      const title = form.querySelector('[name="title"]');
+      if (title) {
+        window.setTimeout(function () {
+          if (document.activeElement && document.activeElement.tagName === 'BUTTON') title.focus();
+        }, 80);
+      }
+    }
+  }
+
+  function handleDebtSubmit(form) {
+    clearErrors(form);
+    const data = new FormData(form);
+    const title = String(data.get('title') || '').trim();
+    const principal = WC.parseAmount(data.get('principal'));
+    const monthlyPayment = WC.parseAmount(data.get('monthlyPayment'));
+    const rate = WC.parseAmount(data.get('rate'));
+    const startDate = String(data.get('startDate') || '');
+    const endDate = String(data.get('endDate') || '');
+    const dueDayRaw = String(data.get('dueDay') || '').trim();
+    const dueDay = dueDayRaw ? Number(dueDayRaw) : 0;
+
+    if (!title) {
+      setError(form, 'title', 'Укажите название долга');
+      return;
+    }
+    if (!Number.isFinite(principal) || principal <= 0) {
+      setError(form, 'principal', 'Сумма долга должна быть больше нуля');
+      return;
+    }
+    if (monthlyPayment && (!Number.isFinite(monthlyPayment) || monthlyPayment < 0)) {
+      setError(form, 'monthlyPayment', 'Платёж не может быть отрицательным');
+      return;
+    }
+    if (startDate && endDate && endDate < startDate) {
+      setError(form, 'endDate', 'Дата окончания раньше даты начала');
+      return;
+    }
+    if (dueDay && (!Number.isInteger(dueDay) || dueDay < 1 || dueDay > 31)) {
+      setError(form, 'dueDay', 'День платежа — от 1 до 31');
+      return;
+    }
+    const id = form.getAttribute('data-id');
+    const existing = id ? Store.debtById(id) : null;
+    Store.saveDebt({
+      id: existing ? existing.id : undefined,
+      createdAt: existing ? existing.createdAt : undefined,
+      title: title,
+      lender: String(data.get('lender') || ''),
+      type: String(data.get('type') || 'other'),
+      principal: principal,
+      monthlyPayment: Number.isFinite(monthlyPayment) ? monthlyPayment : 0,
+      rate: Number.isFinite(rate) ? rate : 0,
+      startDate: startDate,
+      endDate: endDate,
+      dueDay: dueDay,
+      note: String(data.get('note') || '')
+    });
+    WC.closeModal();
+    WC.toast(existing ? 'Долг обновлён' : 'Долг добавлен');
+  }
+
+  function deleteDebt(id) {
+    const record = Store.debtById(id);
+    if (!record) return;
+    if (WC.isModalOpen()) WC.closeModal();
+    const snapshot = JSON.stringify(Store.state);
+    WC.confirmDialog({
+      title: 'Удалить долг?',
+      message: '«' + record.title + '» и все его платежи будут удалены.',
+      confirmLabel: 'Удалить',
+      danger: true
+    }).then(function (confirmed) {
+      if (!confirmed) return;
+      Store.deleteDebt(id);
+      WC.toast('Долг удалён', {
+        actionLabel: 'Отменить',
+        timeout: 9000,
+        onAction: function () {
+          Store.replaceState(JSON.parse(snapshot), { source: 'local' });
+          WC.toast('Долг восстановлен', { type: 'info' });
+        }
+      });
+    });
+  }
+
+  function openDebtPaymentsModal(debtId) {
+    const debt = Store.debtById(debtId);
+    if (!debt) {
+      WC.toast('Долг не найден', { type: 'error' });
+      return;
+    }
+    const remaining = Store.debtRemaining(debt);
+    const paid = Store.debtPaid(debt);
+    const progress = Store.debtProgress(debt);
+    const payments = (debt.payments || []).slice().sort(function (a, b) { return b.date.localeCompare(a.date); });
+
+    const rows = payments.length
+      ? payments.map(function (payment) {
+        return '<tr>' +
+          '<td class="nowrap">' + Store.formatDate(payment.date) + '</td>' +
+          '<td class="num"><b>' + money(payment.amount) + '</b></td>' +
+          '<td>' + (payment.note ? esc(payment.note) : '<span class="muted">—</span>') + '</td>' +
+          '<td class="actions-col"><button type="button" class="icon-btn icon-btn-sm danger" data-action="delete-debt-payment" data-debt="' + esc(debt.id) + '" data-id="' + esc(payment.id) + '" title="Удалить платёж">' + icon('trash') + '</button></td>' +
+          '</tr>';
+      }).join('')
+      : '<tr><td colspan="4" class="muted">Платежей пока нет</td></tr>';
+
+    WC.openModal(
+      '<header class="modal-head"><div><h2>' + esc(debt.title) + '</h2>' +
+      '<p>' + esc(debt.lender || 'Кредитор не указан') + ' · ' + esc(Store.DEBT_TYPES[debt.type].label) + '</p></div>' +
+      '<button type="button" class="icon-btn" data-action="close-modal" aria-label="Закрыть">' + icon('close') + '</button></header>' +
+      '<div class="modal-body">' +
+      '<div class="expense-summary debt-summary">' +
+      '<div class="expense-stat"><span>Сумма долга</span><b>' + money(debt.principal) + '</b></div>' +
+      '<div class="expense-stat"><span>Выплачено</span><b>' + money(paid) + '</b></div>' +
+      '<div class="expense-stat"><span>Остаток</span><b>' + money(remaining) + '</b></div>' +
+      '<div class="expense-stat"><span>Платёж в месяц</span><b>' + money(debt.monthlyPayment) + '</b></div>' +
+      '</div>' +
+      '<div class="debt-progress-block">' +
+      '<div class="debt-progress-top"><span>Погашено</span><b>' + progress + '%</b></div>' +
+      '<div class="debt-progress" role="progressbar" aria-valuenow="' + progress + '" aria-valuemin="0" aria-valuemax="100"><i style="width:' + progress + '%"></i></div>' +
+      '</div>' +
+      '<form id="debtPaymentForm" data-debt="' + esc(debt.id) + '" class="debt-payment-form" novalidate>' +
+      '<h3>Добавить платёж</h3>' +
+      '<div class="form-grid">' +
+      '<label class="field"><span>Дата</span><input class="input" type="date" name="date" value="' + esc(today) + '"></label>' +
+      '<label class="field"><span>Сумма <em>*</em></span><div class="input-with-suffix">' +
+      '<input class="input" type="number" name="amount" min="0.01" step="0.01" inputmode="decimal" placeholder="0">' +
+      '<span class="input-suffix">' + esc(Store.currencySymbol()) + '</span></div></label>' +
+      '<label class="field span-2"><span>Комментарий</span><input class="input" type="text" name="note" maxlength="500" placeholder="Например, платёж за ноябрь"></label>' +
+      '</div>' +
+      '<div class="debt-payment-actions"><button type="submit" class="btn btn-primary btn-sm">' + icon('plus') + 'Внести платёж</button></div>' +
+      '</form>' +
+      '<div class="modal-table-head"><h3>История платежей</h3><span class="muted">' + payments.length + ' ' + WC.plural(payments.length, ['платёж', 'платежа', 'платежей']) + '</span></div>' +
+      '<div class="table-wrap"><table class="data-table expense-table"><thead><tr><th>Дата</th><th class="num">Сумма</th><th>Комментарий</th><th class="actions-col"><span class="sr-only">Действия</span></th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+      '</div>' +
+      '<footer class="modal-actions modal-actions-split">' +
+      '<div class="modal-actions-left">' +
+      '<button type="button" class="btn btn-ghost btn-sm" data-action="edit-debt" data-id="' + esc(debt.id) + '">' + icon('edit') + 'Изменить долг</button>' +
+      '</div>' +
+      '<div class="modal-actions-right">' +
+      '<button type="button" class="btn btn-primary" data-action="close-modal">Готово</button>' +
+      '</div></footer>',
+      { size: 'lg' }
+    );
+  }
+
+  function handleDebtPaymentSubmit(form) {
+    clearErrors(form);
+    const debtId = form.getAttribute('data-debt');
+    const data = new FormData(form);
+    const amount = WC.parseAmount(data.get('amount'));
+    const date = String(data.get('date') || '');
+    if (!Store.isValidISO(date)) {
+      setError(form, 'date', 'Укажите корректную дату');
+      return;
+    }
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setError(form, 'amount', 'Сумма должна быть больше нуля');
+      return;
+    }
+    Store.addDebtPayment(debtId, {
+      date: date,
+      amount: amount,
+      note: String(data.get('note') || '')
+    });
+    WC.closeModal();
+    WC.toast('Платёж добавлен');
+    openDebtPaymentsModal(debtId);
+  }
+
+  function deleteDebtPayment(debtId, paymentId) {
+    const debt = Store.debtById(debtId);
+    if (!debt) return;
+    const snapshot = JSON.stringify(Store.state);
+    Store.deleteDebtPayment(debtId, paymentId);
+    WC.closeModal();
+    WC.toast('Платёж удалён', {
+      actionLabel: 'Отменить',
+      timeout: 9000,
+      onAction: function () {
+        Store.replaceState(JSON.parse(snapshot), { source: 'local' });
+        WC.toast('Платёж восстановлен', { type: 'info' });
+        openDebtPaymentsModal(debtId);
+      }
+    });
+    openDebtPaymentsModal(debtId);
+  }
+
   /* ---------- командировка ---------- */
 
   function tripPreview(form) {
@@ -606,20 +938,33 @@
   /* ---------- регистрация ---------- */
 
   WC.openIncomeModal = openIncomeModal;
+  WC.openExpenseModal = openExpenseModal;
+  WC.openDebtModal = openDebtModal;
+  WC.openDebtPaymentsModal = openDebtPaymentsModal;
   WC.openTripModal = openTripModal;
   WC.openObjectModal = openObjectModal;
   WC.openTripExpensesModal = openTripExpensesModal;
   WC.openTripExpenseModal = openTripExpenseModal;
 
   WC.registerAction('add-income', function () { openIncomeModal(); });
+  WC.registerAction('add-expense', function () { openExpenseModal(); });
+  WC.registerAction('add-debt', function () { openDebtModal(); });
   WC.registerAction('add-trip', function () { openTripModal(); });
   WC.registerAction('add-object', function () { openObjectModal(); });
   WC.registerAction('edit-income', function (element) { openIncomeModal(element.getAttribute('data-id')); });
+  WC.registerAction('edit-expense', function (element) { openExpenseModal(element.getAttribute('data-id')); });
+  WC.registerAction('edit-debt', function (element) { openDebtModal(element.getAttribute('data-id')); });
   WC.registerAction('edit-trip', function (element) { openTripModal(element.getAttribute('data-id')); });
   WC.registerAction('edit-object', function (element) { openObjectModal(element.getAttribute('data-id')); });
   WC.registerAction('delete-income', function (element) { deleteIncome(element.getAttribute('data-id')); });
+  WC.registerAction('delete-expense', function (element) { deleteExpense(element.getAttribute('data-id')); });
+  WC.registerAction('delete-debt', function (element) { deleteDebt(element.getAttribute('data-id')); });
   WC.registerAction('delete-trip', function (element) { deleteTrip(element.getAttribute('data-id')); });
   WC.registerAction('delete-object', function (element) { deleteObject(element.getAttribute('data-id')); });
+  WC.registerAction('open-debt-payments', function (element) { openDebtPaymentsModal(element.getAttribute('data-id')); });
+  WC.registerAction('delete-debt-payment', function (element) {
+    deleteDebtPayment(element.getAttribute('data-debt'), element.getAttribute('data-id'));
+  });
   WC.registerAction('add-trip-expense', function (element) {
     openTripExpenseModal(element.getAttribute('data-trip') || element.getAttribute('data-id'));
   });
@@ -631,6 +976,9 @@
   });
 
   WC.registerSubmit('incomeForm', handleIncomeSubmit);
+  WC.registerSubmit('expenseForm', handleExpenseSubmit);
+  WC.registerSubmit('debtForm', handleDebtSubmit);
+  WC.registerSubmit('debtPaymentForm', handleDebtPaymentSubmit);
   WC.registerSubmit('tripForm', handleTripSubmit);
   WC.registerSubmit('objectForm', handleObjectSubmit);
   WC.registerSubmit('tripExpenseForm', handleTripExpenseSubmit);

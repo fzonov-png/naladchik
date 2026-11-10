@@ -43,6 +43,32 @@
   };
   const EXPENSE_CATEGORY_ORDER = ['travel', 'lodging', 'localTransport', 'communication', 'representation', 'other'];
 
+  // Ежедневные (личные) расходы: не связаны с командировками.
+  const LIFE_CATEGORIES = {
+    food:          { label: 'Продукты и дом',        color: '#34d399', group: 'needs' },
+    housing:       { label: 'Жильё и ЖКХ',           color: '#60a5fa', group: 'needs' },
+    transport:     { label: 'Транспорт',             color: '#22d3ee', group: 'needs' },
+    health:        { label: 'Здоровье',              color: '#fb923c', group: 'needs' },
+    communication: { label: 'Связь и интернет',      color: '#a78bfa', group: 'needs' },
+    family:        { label: 'Дети и семья',          color: '#4ade80', group: 'needs' },
+    cafe:          { label: 'Кафе и рестораны',      color: '#fbbf24', group: 'wants' },
+    entertainment: { label: 'Развлечения',           color: '#f472b6', group: 'wants' },
+    shopping:      { label: 'Покупки и одежда',      color: '#f59e0b', group: 'wants' },
+    education:     { label: 'Образование',           color: '#818cf8', group: 'wants' },
+    other:         { label: 'Прочие расходы',        color: '#94a3b8', group: 'wants' }
+  };
+  const LIFE_CATEGORY_ORDER = ['food', 'housing', 'transport', 'health', 'communication', 'family', 'cafe', 'entertainment', 'shopping', 'education', 'other'];
+
+  const DEBT_TYPES = {
+    credit:      { label: 'Кредит',           color: '#60a5fa' },
+    installment: { label: 'Рассрочка',        color: '#a78bfa' },
+    mortgage:    { label: 'Ипотека',          color: '#34d399' },
+    loan:        { label: 'Займ',             color: '#fbbf24' },
+    card:        { label: 'Кредитная карта',  color: '#fb923c' },
+    other:       { label: 'Другой долг',      color: '#94a3b8' }
+  };
+  const DEBT_TYPE_ORDER = ['credit', 'installment', 'mortgage', 'loan', 'card', 'other'];
+
   const PERIODS = {
     month: 'Этот месяц',
     prevMonth: 'Прошлый месяц',
@@ -302,7 +328,9 @@
       sources: [],
       objects: [],
       incomes: [],
-      trips: []
+      trips: [],
+      expenses: [],
+      debts: []
     };
   }
 
@@ -434,6 +462,72 @@
       };
     });
 
+    const expensesRaw = Array.isArray(raw.expenses) ? raw.expenses : [];
+    const expenses = expensesRaw.filter(function (item) {
+      return item && typeof item === 'object';
+    }).map(function (item) {
+      return {
+        id: uniqueRecordId(item.id),
+        date: isValidISO(item.date) ? item.date : todayISO(),
+        category: LIFE_CATEGORIES[item.category] ? item.category : 'other',
+        amount: round2(clampNumber(item.amount, 0, 100000000000, 0)),
+        method: item.method === 'cash' ? 'cash' : 'bank',
+        note: str(item.note).trim().slice(0, 1000),
+        createdAt: str(item.createdAt) || nowISO(),
+        updatedAt: str(item.updatedAt) || nowISO()
+      };
+    }).filter(function (item) {
+      return item.amount > 0;
+    });
+
+    const debtsRaw = Array.isArray(raw.debts) ? raw.debts : [];
+    const debts = debtsRaw.filter(function (item) {
+      return item && typeof item === 'object';
+    }).map(function (item) {
+      const principal = round2(clampNumber(item.principal, 0, 100000000000, 0));
+      const startDate = isValidISO(item.startDate) ? item.startDate : '';
+      let endDate = isValidISO(item.endDate) ? item.endDate : '';
+      if (startDate && endDate && endDate < startDate) endDate = startDate;
+      const dueDay = Math.round(clampNumber(item.dueDay, 0, 31, 0));
+      const paymentsRaw = Array.isArray(item.payments) ? item.payments : [];
+      const seenPayments = new Set();
+      const payments = paymentsRaw.filter(function (payment) {
+        return payment && typeof payment === 'object';
+      }).map(function (payment) {
+        let paymentId = str(payment.id).trim();
+        if (!paymentId || seenPayments.has(paymentId)) paymentId = uid();
+        seenPayments.add(paymentId);
+        return {
+          id: paymentId,
+          date: isValidISO(payment.date) ? payment.date : (startDate || todayISO()),
+          amount: round2(clampNumber(payment.amount, 0, 100000000000, 0)),
+          note: str(payment.note).trim().slice(0, 500)
+        };
+      }).filter(function (payment) {
+        return payment.amount > 0;
+      }).sort(function (a, b) {
+        return a.date.localeCompare(b.date);
+      });
+      return {
+        id: uniqueRecordId(item.id),
+        title: str(item.title).trim().slice(0, 200) || 'Долг',
+        lender: str(item.lender).trim().slice(0, 200),
+        type: DEBT_TYPES[item.type] ? item.type : 'other',
+        principal: principal,
+        monthlyPayment: round2(clampNumber(item.monthlyPayment, 0, 100000000000, 0)),
+        rate: round2(clampNumber(item.rate, 0, 1000, 0)),
+        startDate: startDate,
+        endDate: endDate,
+        dueDay: dueDay,
+        note: str(item.note).trim().slice(0, 2000),
+        payments: payments,
+        createdAt: str(item.createdAt) || nowISO(),
+        updatedAt: str(item.updatedAt) || nowISO()
+      };
+    }).filter(function (item) {
+      return item.principal > 0;
+    });
+
     return {
       version: VERSION,
       updatedAt: isValidISO(String(raw.updatedAt || '').slice(0, 10)) ? String(raw.updatedAt) : nowISO(),
@@ -441,7 +535,9 @@
       sources: sources,
       objects: objects,
       incomes: incomes,
-      trips: trips
+      trips: trips,
+      expenses: expenses,
+      debts: debts
     };
   }
 
@@ -652,6 +748,232 @@
     return tripById(tripId);
   }
 
+  /* ---------- ежедневные расходы ---------- */
+
+  function saveExpense(data) {
+    let saved = null;
+    commit(function () {
+      const now = nowISO();
+      const record = {
+        id: data.id || uid(),
+        date: isValidISO(data.date) ? data.date : todayISO(),
+        category: LIFE_CATEGORIES[data.category] ? data.category : 'other',
+        amount: round2(clampNumber(data.amount, 0, 100000000000, 0)),
+        method: data.method === 'cash' ? 'cash' : 'bank',
+        note: str(data.note).trim().slice(0, 1000),
+        createdAt: data.createdAt || now,
+        updatedAt: now
+      };
+      if (record.amount <= 0) return;
+      const index = state.expenses.findIndex(function (item) { return item.id === record.id; });
+      if (index >= 0) state.expenses[index] = record;
+      else state.expenses.push(record);
+      saved = record;
+    });
+    return saved;
+  }
+
+  function expenseById(id) {
+    return state.expenses.find(function (item) { return item.id === id; }) || null;
+  }
+
+  function expensesInRange(from, to) {
+    return state.expenses.filter(function (expense) {
+      return withinRange(expense.date, from, to);
+    });
+  }
+
+  function lifeCategories() {
+    return LIFE_CATEGORY_ORDER.map(function (key) {
+      const category = LIFE_CATEGORIES[key];
+      return { value: key, label: category.label, color: category.color, group: category.group };
+    });
+  }
+
+  function lifeCategoryLabel(key) {
+    return LIFE_CATEGORIES[key] ? LIFE_CATEGORIES[key].label : LIFE_CATEGORIES.other.label;
+  }
+
+  // Суммы по категориям: [{ key, label, color, group, value }], по убыванию.
+  function expenseCategoriesTotal(list) {
+    const totals = {};
+    (list || []).forEach(function (expense) {
+      const key = LIFE_CATEGORIES[expense.category] ? expense.category : 'other';
+      totals[key] = (totals[key] || 0) + (Number(expense.amount) || 0);
+    });
+    return LIFE_CATEGORY_ORDER.filter(function (key) {
+      return totals[key] > 0;
+    }).map(function (key) {
+      return {
+        key: key,
+        label: LIFE_CATEGORIES[key].label,
+        color: LIFE_CATEGORIES[key].color,
+        group: LIFE_CATEGORIES[key].group,
+        value: round2(totals[key])
+      };
+    }).sort(function (a, b) {
+      return b.value - a.value;
+    });
+  }
+
+  /* ---------- долги ---------- */
+
+  function saveDebt(data) {
+    let saved = null;
+    commit(function () {
+      const now = nowISO();
+      const startDate = isValidISO(data.startDate) ? data.startDate : '';
+      let endDate = isValidISO(data.endDate) ? data.endDate : '';
+      if (startDate && endDate && endDate < startDate) endDate = startDate;
+      const existing = debtById(data.id);
+      const record = {
+        id: data.id || uid(),
+        title: str(data.title).trim().slice(0, 200) || 'Долг',
+        lender: str(data.lender).trim().slice(0, 200),
+        type: DEBT_TYPES[data.type] ? data.type : 'other',
+        principal: round2(clampNumber(data.principal, 0, 100000000000, 0)),
+        monthlyPayment: round2(clampNumber(data.monthlyPayment, 0, 100000000000, 0)),
+        rate: round2(clampNumber(data.rate, 0, 1000, 0)),
+        startDate: startDate,
+        endDate: endDate,
+        dueDay: Math.round(clampNumber(data.dueDay, 0, 31, 0)),
+        note: str(data.note).trim().slice(0, 2000),
+        payments: existing ? existing.payments.slice() : [],
+        createdAt: data.createdAt || (existing ? existing.createdAt : now),
+        updatedAt: now
+      };
+      if (record.principal <= 0) return;
+      const index = state.debts.findIndex(function (item) { return item.id === record.id; });
+      if (index >= 0) state.debts[index] = record;
+      else state.debts.push(record);
+      saved = record;
+    });
+    return saved;
+  }
+
+  function deleteDebt(id) {
+    commit(function () {
+      const index = state.debts.findIndex(function (item) { return item.id === id; });
+      if (index >= 0) state.debts.splice(index, 1);
+    });
+  }
+
+  function addDebtPayment(debtId, data) {
+    let saved = null;
+    commit(function () {
+      const debt = debtById(debtId);
+      if (!debt) return;
+      const amount = round2(clampNumber(data.amount, 0, 100000000000, 0));
+      if (amount <= 0) return;
+      const payment = {
+        id: data.id || uid(),
+        date: isValidISO(data.date) ? data.date : todayISO(),
+        amount: amount,
+        note: str(data.note).trim().slice(0, 500)
+      };
+      if (!Array.isArray(debt.payments)) debt.payments = [];
+      const index = debt.payments.findIndex(function (item) { return item.id === payment.id; });
+      if (index >= 0) debt.payments[index] = payment;
+      else debt.payments.push(payment);
+      debt.payments.sort(function (a, b) { return a.date.localeCompare(b.date); });
+      debt.updatedAt = nowISO();
+      saved = debt;
+    });
+    return saved;
+  }
+
+  function deleteDebtPayment(debtId, paymentId) {
+    commit(function () {
+      const debt = debtById(debtId);
+      if (!debt || !Array.isArray(debt.payments)) return;
+      const index = debt.payments.findIndex(function (item) { return item.id === paymentId; });
+      if (index < 0) return;
+      debt.payments.splice(index, 1);
+      debt.updatedAt = nowISO();
+    });
+  }
+
+  function debtById(id) {
+    return state.debts.find(function (debt) { return debt.id === id; }) || null;
+  }
+
+  function debtPaymentsTotal(debt) {
+    if (!debt || !Array.isArray(debt.payments)) return 0;
+    return round2(debt.payments.reduce(function (sum, payment) {
+      return sum + (Number(payment.amount) || 0);
+    }, 0));
+  }
+
+  function debtPaymentsInRange(debt, from, to) {
+    if (!debt || !Array.isArray(debt.payments)) return [];
+    return debt.payments.filter(function (payment) {
+      return withinRange(payment.date, from, to);
+    });
+  }
+
+  function debtRemaining(debt) {
+    if (!debt) return 0;
+    return round2(Math.max(0, (Number(debt.principal) || 0) - debtPaymentsTotal(debt)));
+  }
+
+  function debtPaid(debt) {
+    if (!debt) return 0;
+    return round2(Math.min(Number(debt.principal) || 0, debtPaymentsTotal(debt)));
+  }
+
+  function debtProgress(debt) {
+    const principal = debt ? Number(debt.principal) || 0 : 0;
+    if (principal <= 0) return 0;
+    return Math.min(100, Math.round((debtPaid(debt) / principal) * 100));
+  }
+
+  // Ближайшая дата платежа по графику (день месяца из dueDay).
+  function debtNextPayment(debt) {
+    if (!debt) return null;
+    if (debtRemaining(debt) <= 0) return null;
+    const today = todayISO();
+    if (debt.endDate && debt.endDate < today) return null;
+    if (!debt.dueDay) return debt.endDate || null;
+    const base = parseISO(today) || new Date();
+    let year = base.getFullYear();
+    let month = base.getMonth();
+    const makeDate = function (y, m) {
+      const lastDay = new Date(y, m + 1, 0).getDate();
+      return new Date(y, m, Math.min(debt.dueDay, lastDay));
+    };
+    let candidate = makeDate(year, month);
+    if (iso(candidate) < today) {
+      candidate = makeDate(year, month + 1);
+    }
+    let value = iso(candidate);
+    if (debt.endDate && value > debt.endDate) return debt.endDate;
+    return value;
+  }
+
+  function debtStatus(debt) {
+    if (!debt) return { code: 'active', label: 'Активен', tone: 'blue' };
+    if (debtRemaining(debt) <= 0) return { code: 'paid', label: 'Погашен', tone: 'green' };
+    const today = todayISO();
+    if (debt.endDate && debt.endDate < today) return { code: 'overdue', label: 'Просрочен', tone: 'red' };
+    const next = debtNextPayment(debt);
+    if (next && next < today) return { code: 'overdue', label: 'Просрочен', tone: 'red' };
+    return { code: 'active', label: 'Активен', tone: 'blue' };
+  }
+
+  function debtsMonthlyTotal(list) {
+    const source = Array.isArray(list) ? list : state.debts;
+    return round2(source.reduce(function (sum, debt) {
+      return debtRemaining(debt) > 0 ? sum + (Number(debt.monthlyPayment) || 0) : sum;
+    }, 0));
+  }
+
+  function debtsRemainingTotal(list) {
+    const source = Array.isArray(list) ? list : state.debts;
+    return round2(source.reduce(function (sum, debt) {
+      return sum + debtRemaining(debt);
+    }, 0));
+  }
+
   function saveObject(data) {
     let saved = null;
     commit(function () {
@@ -701,7 +1023,7 @@
   }
 
   function deleteRecord(collection, id) {
-    if (!['objects', 'incomes', 'trips'].includes(collection)) return;
+    if (!['objects', 'incomes', 'trips', 'expenses', 'debts'].includes(collection)) return;
     commit(function () {
       const list = state[collection];
       const index = list.findIndex(function (item) { return item.id === id; });
@@ -811,6 +1133,10 @@
     TRIP_STATUSES: TRIP_STATUSES,
     EXPENSE_CATEGORIES: EXPENSE_CATEGORIES,
     EXPENSE_CATEGORY_ORDER: EXPENSE_CATEGORY_ORDER,
+    LIFE_CATEGORIES: LIFE_CATEGORIES,
+    LIFE_CATEGORY_ORDER: LIFE_CATEGORY_ORDER,
+    DEBT_TYPES: DEBT_TYPES,
+    DEBT_TYPE_ORDER: DEBT_TYPE_ORDER,
     PERIODS: PERIODS,
     MONTHS_SHORT: MONTHS_SHORT,
     MONTHS_FULL: MONTHS_FULL,
@@ -823,6 +1149,26 @@
     saveTripExpense: saveTripExpense,
     deleteTripExpense: deleteTripExpense,
     saveTripAdvance: saveTripAdvance,
+    saveExpense: saveExpense,
+    expenseById: expenseById,
+    expensesInRange: expensesInRange,
+    lifeCategories: lifeCategories,
+    lifeCategoryLabel: lifeCategoryLabel,
+    expenseCategoriesTotal: expenseCategoriesTotal,
+    saveDebt: saveDebt,
+    deleteDebt: deleteDebt,
+    addDebtPayment: addDebtPayment,
+    deleteDebtPayment: deleteDebtPayment,
+    debtById: debtById,
+    debtPaymentsTotal: debtPaymentsTotal,
+    debtPaymentsInRange: debtPaymentsInRange,
+    debtRemaining: debtRemaining,
+    debtPaid: debtPaid,
+    debtProgress: debtProgress,
+    debtNextPayment: debtNextPayment,
+    debtStatus: debtStatus,
+    debtsMonthlyTotal: debtsMonthlyTotal,
+    debtsRemainingTotal: debtsRemainingTotal,
     saveObject: saveObject,
     saveSettings: saveSettings,
     addSource: addSource,

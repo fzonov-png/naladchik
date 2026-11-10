@@ -113,6 +113,85 @@
   }
 
   /**
+   * Сгруппированные (не накопленные) столбцы для сравнения рядов.
+   * months: [{ label, full, values: [income, expense] }]
+   * series: [{ label, className }]
+   */
+  function groupedBars(container, options) {
+    if (!container) return;
+    const months = options && Array.isArray(options.months) ? options.months : [];
+    const series = options && Array.isArray(options.series) ? options.series : [];
+    const format = options && options.formatValue ? options.formatValue : compact;
+    if (!months.length) {
+      empty(container, options && options.emptyText ? options.emptyText : 'Нет данных за период');
+      return;
+    }
+
+    const width = 760;
+    const height = 290;
+    const padding = { left: 58, right: 14, top: 18, bottom: 42 };
+    const innerWidth = width - padding.left - padding.right;
+    const innerHeight = height - padding.top - padding.bottom;
+    let maxTotal = 0;
+    months.forEach(function (month) {
+      (month.values || []).forEach(function (value) {
+        maxTotal = Math.max(maxTotal, Number(value) || 0);
+      });
+    });
+    if (maxTotal <= 0) {
+      empty(container, options && options.emptyText ? options.emptyText : 'Нет данных за период');
+      return;
+    }
+    const max = niceMax(maxTotal);
+    const groupWidth = innerWidth / months.length;
+    const barGap = 2;
+    const barWidth = Math.max(4, Math.min(22, (groupWidth * 0.62 - barGap * (series.length - 1)) / Math.max(1, series.length)));
+    const yFor = function (value) {
+      return padding.top + innerHeight - (value / max) * innerHeight;
+    };
+
+    const parts = [];
+    parts.push('<svg class="chart-svg" viewBox="0 0 ' + width + ' ' + height + '" role="img" aria-label="Сравнение по месяцам" preserveAspectRatio="xMidYMid meet">');
+    for (let step = 0; step <= 4; step += 1) {
+      const value = (max / 4) * step;
+      const y = yFor(value);
+      parts.push('<line class="chart-grid" x1="' + padding.left + '" y1="' + y.toFixed(1) + '" x2="' + (width - padding.right) + '" y2="' + y.toFixed(1) + '"></line>');
+      parts.push('<text class="chart-axis" x="' + (padding.left - 10) + '" y="' + (y + 4).toFixed(1) + '" text-anchor="end">' + escapeXml(format(value)) + '</text>');
+    }
+
+    months.forEach(function (month, monthIndex) {
+      const center = padding.left + groupWidth * monthIndex + groupWidth / 2;
+      const values = (month.values || []).map(function (value) { return Number(value) || 0; });
+      const totalWidth = series.length * barWidth + (series.length - 1) * barGap;
+      const startX = center - totalWidth / 2;
+      const tooltip = [month.full || month.label];
+      series.forEach(function (item, seriesIndex) {
+        tooltip.push(item.label + ': ' + format(values[seriesIndex] || 0));
+      });
+
+      parts.push('<g>');
+      parts.push('<rect class="chart-hit" x="' + (center - groupWidth / 2) + '" y="' + padding.top + '" width="' + groupWidth + '" height="' + innerHeight + '"><title>' + escapeXml(tooltip.join('\n')) + '</title></rect>');
+      values.forEach(function (value, seriesIndex) {
+        if (!value) return;
+        const barHeight = (value / max) * innerHeight;
+        const x = startX + seriesIndex * (barWidth + barGap);
+        const y = padding.top + innerHeight - barHeight;
+        const className = (series[seriesIndex] && series[seriesIndex].className) || 'chart-bar-primary';
+        parts.push('<rect class="' + className + '" x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + barWidth.toFixed(1) + '" height="' + Math.max(1, barHeight - 1).toFixed(1) + '" rx="3"><title>' + escapeXml((series[seriesIndex] ? series[seriesIndex].label : '') + ': ' + format(value)) + '</title></rect>');
+      });
+      parts.push('</g>');
+
+      const showLabel = months.length <= 8 || monthIndex % 2 === 0 || monthIndex === months.length - 1;
+      if (showLabel) {
+        parts.push('<text class="chart-label" x="' + center.toFixed(1) + '" y="' + (height - 16) + '" text-anchor="middle">' + escapeXml(month.label) + '</text>');
+      }
+    });
+
+    parts.push('</svg>');
+    container.innerHTML = parts.join('');
+  }
+
+  /**
    * Кольцевая диаграмма структуры.
    * items: [{ label, value, color }]
    */
@@ -191,6 +270,7 @@
 
   window.Charts = {
     stackedBars: stackedBars,
+    groupedBars: groupedBars,
     donut: donut,
     hbars: hbars
   };
