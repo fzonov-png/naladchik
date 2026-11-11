@@ -986,7 +986,7 @@
     const wants = categories.filter(function (item) { return item.group === 'wants'; }).reduce(function (total, item) { return total + item.value; }, 0);
     const needsShare = incomeTotal > 0 ? (needs / incomeTotal) * 100 : 0;
     const wantsShare = incomeTotal > 0 ? (wants / incomeTotal) * 100 : 0;
-    const debtLoad = monthlyIncome > 0 ? (debtsMonthly / monthlyIncome) * 100 : (debtsMonthly > 0 ? 100 : 0);
+    const debtLoad = monthlyIncome > 0 ? (debtsMonthly / monthlyIncome) * 100 : null;
     const largest = categories[0] || null;
     const overdueTrips = Store.tripsInRange(range.from, range.to).filter(function (trip) {
       return Store.tripBalance(trip) < 0;
@@ -1024,10 +1024,12 @@
       list.push({ tone: 'info', title: 'Недостаточно данных для анализа', text: 'Добавьте доходы и ежедневные расходы за период — после этого появятся расчёты и персональные рекомендации.' });
       return list;
     }
-    if (data.freeCash < 0) {
-      list.push({ tone: 'bad', title: 'Дефицит бюджета: ' + money(Math.abs(data.freeCash)), text: 'Расходы и платежи по долгам превышают доходы. Сократите необязательные траты или увеличьте доход, чтобы не уходить в новые долги.' });
-    } else {
-      list.push({ tone: 'good', title: 'Бюджет с профицитом: ' + money(data.freeCash), text: 'После расходов и платежей остаётся свободный остаток. Направьте часть на резервный фонд и досрочное погашение долгов.' });
+    if (data.incomeTotal > 0 || data.expensesTotal > 0) {
+      if (data.freeCash < 0) {
+        list.push({ tone: 'bad', title: 'Дефицит бюджета: ' + money(Math.abs(data.freeCash)), text: 'Расходы и платежи по долгам превышают доходы. Сократите необязательные траты или увеличьте доход, чтобы не уходить в новые долги.' });
+      } else {
+        list.push({ tone: 'good', title: 'Бюджет с профицитом: ' + money(data.freeCash), text: 'После расходов и платежей остаётся свободный остаток. Направьте часть на резервный фонд и досрочное погашение долгов.' });
+      }
     }
 
     if (data.incomeTotal > 0) {
@@ -1040,7 +1042,9 @@
       }
     }
 
-    if (data.debtLoad > 40) {
+    if (data.debtLoad === null && data.debtsMonthly > 0) {
+      list.push({ tone: 'info', title: 'Долговая нагрузка не рассчитана', text: 'За выбранный период нет доходов. Добавьте поступления, чтобы оценить, какую долю дохода занимают платежи по долгам.' });
+    } else if (data.debtLoad > 40) {
       list.push({ tone: 'bad', title: 'Высокая долговая нагрузка: ' + percent(data.debtLoad), text: 'Платежи по долгам превышают 40% среднемесячного дохода. Рассмотрите рефинансирование или откажитесь от новых кредитов.' });
     } else if (data.debtLoad > 30) {
       list.push({ tone: 'warn', title: 'Долговая нагрузка ' + percent(data.debtLoad), text: 'Комфортный уровень — до 30% дохода. Старайтесь не брать новые обязательства, пока нагрузка не снизится.' });
@@ -1084,7 +1088,8 @@
     const data = analysisData();
     const recommendations = recommendationList(data);
     const hasBudget = data.incomeTotal > 0 || data.expensesTotal > 0 || data.debtsMonthly > 0;
-    const debtRatio = data.debtsMonthly > 0 ? Math.min(100, data.debtLoad) : 0;
+    const debtTone = data.debtLoad === null ? 'blue' : data.debtLoad > 40 ? 'rose' : data.debtLoad > 30 ? 'amber' : 'green';
+    const debtLoadText = data.debtsMonthly <= 0 ? '0%' : data.debtLoad === null ? '—' : percent(data.debtLoad);
     const savingsTone = data.freeCash >= 0 ? 'green' : 'rose';
     const budgetRows = [
       { key: 'needs', label: 'Обязательные', hint: 'до 50%', actual: data.needsShare, target: 50, tone: 'blue', value: data.needs },
@@ -1095,10 +1100,10 @@
     return '<div class="analysis">' +
       '<div class="kpi-grid">' +
       kpiCard('Доход за период', money(data.incomeTotal), 'wallet', 'blue', '<span class="muted">без суточных</span>') +
-      kpiCard('Ежедневные расходы', money(data.expensesTotal), 'receipt', 'rose', '<span class="muted">' + share(data.expensesTotal, data.incomeTotal) + ' от дохода</span>') +
+      kpiCard('Ежедневные расходы', money(data.expensesTotal), 'receipt', 'rose', '<span class="muted">' + (data.incomeTotal > 0 ? share(data.expensesTotal, data.incomeTotal) + ' от дохода' : 'нет доходов за период') + '</span>') +
       kpiCard('Платежи по долгам', money(data.debtPayments), 'credit-card', 'violet', '<span class="muted">' + money(data.debtsMonthly) + ' / мес. по графику</span>') +
       kpiCard('Свободный остаток', money(data.freeCash), 'chart', savingsTone, '<span class="muted">' + (data.incomeTotal ? percent(data.savingsRate) + ' от дохода' : 'нет доходов за период') + '</span>') +
-      kpiCard('Долговая нагрузка', data.debtsMonthly > 0 ? percent(data.debtLoad) : '0%', 'alert', debtRatio > 40 ? 'rose' : debtRatio > 30 ? 'amber' : 'green', '<span class="muted">' + money(Store.debtsRemainingTotal()) + ' остаток</span>') +
+      kpiCard('Долговая нагрузка', debtLoadText, 'alert', debtTone, '<span class="muted">' + money(Store.debtsRemainingTotal()) + ' остаток</span>') +
       '</div>' +
 
       '<div class="analysis-grid">' +
